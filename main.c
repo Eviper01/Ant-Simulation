@@ -41,10 +41,10 @@ struct ant_struct{
     struct food_struct* carrying;
 };
 
-int in_interact_range(struct ant_struct Ant_Address, struct food_struct* Food) {
+int in_interact_range(struct ant_struct* Ant_Address, struct food_struct* Food) {
    
-    double Delta_X = (*Food).xpos - Ant_Address.xpos;
-    double Delta_Y = Food_Y - Ant_Y;
+    double Delta_X = (*Food).xpos - (*Ant_Address).xpos;
+    double Delta_Y = (*Food).ypos - (*Ant_Address).ypos;
     double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
 
     if(Magnitude_Squared < Ant_Interact_Range) {
@@ -65,18 +65,14 @@ int64_t* init_ant(int64_t* Ants_List) {
 }
 
 
+int in_view_cone(struct ant_struct* Ant_Address, struct food_struct* Food, double* Target_Angle) {
 
 
-
-
-
-int in_view_cone(double Target_X, double Target_Y, double Ant_X, double Ant_Y, double Ant_Orientation, double* Target_Angle) {
-
-
-    double Delta_X = Target_X - Ant_X;
-    double Delta_Y = Target_Y - Ant_Y;
+    
+    double Delta_X = (*Food).xpos - (*Ant_Address).xpos;
+    double Delta_Y = (*Food).ypos - (*Ant_Address).ypos;
     double Relative_Angle = atan2(Delta_X,Delta_X);
-    double Delta_Angle = fabs(Relative_Angle-Ant_Orientation); //Absoulte value
+    double Delta_Angle = fabs(Relative_Angle-(*Ant_Address).angle); //Absoulte value
     double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
 
     if(Magnitude_Squared <  Ant_View_Range && Delta_Angle < Ant_View_Range) {
@@ -96,15 +92,11 @@ void move_randomly(int64_t* Ant) {
 // Move in a random way 
 }
 
-void move_direction(int64_t* Ant, double Move_Angle) {
-    double Ant_X = (double)*(Ant+9);
-    double Ant_Y = (double)*(Ant+17);
-
-    *(Ant+25) = Move_Angle; //figure out how to assign the double to this value (how to do a cast assignment?)
+void move_direction(struct ant_struct* Ant, double Move_Angle) {
     //create a vector of lenght movement size in the direction of the ants orientation;
-    Ant_X += Ant_Movement_Range*cos(Move_Angle);
-    Ant_Y += Ant_Movement_Range*sin(Move_Angle);
- 
+    (*Ant).angle = Move_Angle;
+    (*Ant).xpos += Ant_Movement_Range*cos(Move_Angle);
+    (*Ant).ypos += Ant_Movement_Range*sin(Move_Angle);
 }
 
 
@@ -146,7 +138,7 @@ void ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, 
 
 
         if (Amount_Food != 0) {
-        move_direction(Ant_Address, Average_Angle);  
+            move_direction(Ant_Address, Average_Angle);  
         }
 
         else {
