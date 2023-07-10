@@ -125,7 +125,7 @@ int in_interact_range(struct ant_struct* Ant_Address, void* Object, int type) {
 struct food_struct* init_food(struct food_struct** Foods_List, double xpos, double ypos) {
     
     if(*Foods_List == NULL) {
-        *Foods_List = malloc(sizeof(struct food_struct)); 
+        *Foods_List = (struct food_struct*)malloc(sizeof(struct food_struct)); 
         (*Foods_List)->next = NULL;
         (*Foods_List)->xpos = xpos;
         (*Foods_List)->ypos = ypos;
@@ -136,7 +136,7 @@ struct food_struct* init_food(struct food_struct** Foods_List, double xpos, doub
     while ((*Food_Address).next != NULL) {
         Food_Address = (*Food_Address).next;
     }
-    (*Food_Address).next =  malloc(sizeof(struct food_struct)); //This is never freed
+    (*Food_Address).next =  (struct food_struct*)malloc(sizeof(struct food_struct)); //This is never freed
     (*(*Food_Address).next).next = NULL;
     (*(*Food_Address).next).xpos = xpos;
     (*(*Food_Address).next).ypos = ypos;
@@ -148,7 +148,7 @@ struct food_struct* init_food(struct food_struct** Foods_List, double xpos, doub
 struct colony_struct* init_colony(struct colony_struct** Colonys_List, double xpos, double ypos, double radius) {
 
     if(*Colonys_List == NULL) {
-        *Colonys_List = malloc(sizeof(struct colony_struct)); 
+        *Colonys_List = (struct colony_struct*)malloc(sizeof(struct colony_struct)); 
         (*Colonys_List)->next = NULL;
         (*Colonys_List)->xpos = xpos;
         (*Colonys_List)->ypos = ypos;
@@ -160,7 +160,7 @@ struct colony_struct* init_colony(struct colony_struct** Colonys_List, double xp
     while ((*Colony_Address).next != NULL) {
         Colony_Address = (*Colony_Address).next;
     }
-    (*Colony_Address).next =  malloc(sizeof(struct colony_struct)); //This is never freed
+    (*Colony_Address).next =  (struct colony_struct*)malloc(sizeof(struct colony_struct)); //This is never freed
     (*(*Colony_Address).next).next = NULL;
     (*(*Colony_Address).next).xpos = xpos;
     (*(*Colony_Address).next).ypos = ypos;
@@ -171,7 +171,7 @@ struct ant_struct* init_ant(struct ant_struct** Ants_List, double xpos, double y
     //creates an ant and returns a poitner to it as well as adding it to the list
 
     if(*Ants_List == NULL) {
-        *Ants_List = malloc(sizeof(struct ant_struct)); 
+        *Ants_List = (struct ant_struct*)malloc(sizeof(struct ant_struct)); 
         (*Ants_List)->next = NULL;
         (*Ants_List)->state = Ant_Foraging;
         (*Ants_List)->angle = randfrom(0, 2*M_PI);
@@ -184,7 +184,7 @@ struct ant_struct* init_ant(struct ant_struct** Ants_List, double xpos, double y
     while ((*Ant_Address).next != NULL) {
         Ant_Address = (*Ant_Address).next;
     }
-    (*Ant_Address).next =  malloc(sizeof(struct ant_struct)); //This is never freed
+    (*Ant_Address).next =  (struct ant_struct*)malloc(sizeof(struct ant_struct)); //This is never freed
     (*(*Ant_Address).next).next = NULL;
     (*(*Ant_Address).next).state = Ant_Foraging;
     (*(*Ant_Address).next).angle = randfrom(0, 2*M_PI);
@@ -363,7 +363,7 @@ void move_randomly(struct ant_struct* Ant) {
   */   
 }
 
-void delete(void* Object, int type){
+void delete_object(void* Object, int type){
     //this causes a segfault
     if(type == Type_Food) {
         struct food_struct* Food = (struct food_struct*)Object;
@@ -461,7 +461,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
 
             if(in_interact_range(Ant_Address, &Colony, Type_Colony)) {
                 
-                delete(Ant_Address->carrying, Type_Food);
+                delete_object(Ant_Address->carrying, Type_Food);
                 Ant_Address->carrying = NULL; 
                 Ant_Address->state = Ant_Foraging; 
 
@@ -532,7 +532,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
 }
 
 struct setup_struct* setup() {
-    struct setup_struct* Setup_Data = malloc(sizeof(struct setup_struct));
+    struct setup_struct* Setup_Data = (struct setup_struct*)malloc(sizeof(struct setup_struct));
     Setup_Data->ants_list = NULL;
     for (int i = 0 ; i < Number_Ants; i++) {
         init_ant(&(Setup_Data->ants_list), randfrom(-Board_Size,Board_Size), randfrom(-Board_Size,Board_Size));

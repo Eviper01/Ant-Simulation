@@ -2,8 +2,6 @@ from matplotlib import pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
 
-
-
 # Simulation parameters
 Simulation_Steps = 3000
 Number_Ants = 30
