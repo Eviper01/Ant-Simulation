@@ -3,25 +3,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <SFML/Graphics.hpp>
+
+
 
 //constants
 #define M_PI 3.14159265358979323846  /* pi */
 
 //Simulation Parameters
-#define Simulation_Steps 3000
-#define Number_Ants 30
-#define Board_Size 1000
-#define Number_Foods 50
+#define Number_Ants 125
+#define Canvas_X 1280
+#define Canvas_Y 720
+#define Number_Foods 500
 
 //Ant States
 #define Ant_Foraging 0
 #define Ant_Homing 1
 
 //Ant Parameters
-#define Ant_View_Range 100
+#define Ant_View_Range 10
 #define Ant_View_Angle 0.3 //Radians
-#define Ant_Interact_Range 10                           
-#define Ant_Movement_Range 10
+#define Ant_Interact_Range 5                           
+#define Ant_Movement_Range 1
 
 
 //logic
@@ -127,19 +130,23 @@ struct food_struct* init_food(struct food_struct** Foods_List, double xpos, doub
     if(*Foods_List == NULL) {
         *Foods_List = (struct food_struct*)malloc(sizeof(struct food_struct)); 
         (*Foods_List)->next = NULL;
+        (*Foods_List)->last = NULL;
         (*Foods_List)->xpos = xpos;
         (*Foods_List)->ypos = ypos;
+        (*Foods_List)->carrying = NULL;
         return *Foods_List;
     }
 
     struct food_struct* Food_Address = *Foods_List;
-    while ((*Food_Address).next != NULL) {
+    while ((*Food_Address).next != NULL) { 
         Food_Address = (*Food_Address).next;
     }
     (*Food_Address).next =  (struct food_struct*)malloc(sizeof(struct food_struct)); //This is never freed
     (*(*Food_Address).next).next = NULL;
     (*(*Food_Address).next).xpos = xpos;
     (*(*Food_Address).next).ypos = ypos;
+    (*(*Food_Address).next).carrying = NULL;
+    (*(*Food_Address).next).last = Food_Address;
     return (*Food_Address).next;
 
 
@@ -193,6 +200,14 @@ struct ant_struct* init_ant(struct ant_struct** Ants_List, double xpos, double y
     return (*Ant_Address).next;
 }
 
+int pickup_food(struct ant_struct* Ant, struct food_struct* Food) {
+    //set the pointers
+    Ant->state = Ant_Homing;
+    Ant->carrying = Food; //especially this line  
+    Food->carrying = Ant;
+    
+    return 0;
+}
 
 int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_Angle, int type) {
 
@@ -234,6 +249,8 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_An
         return 0;
     }
     if (type == Type_Colony) {
+        //TODO: Verify that this is actaully working
+        //
         //To check if we can see this we need to determine if the view cone overlaps
         struct colony_struct* Colony = (struct colony_struct*)Object;
         double Delta_X = (*Colony).xpos - (*Ant_Address).xpos;
@@ -355,52 +372,100 @@ void move_direction(struct ant_struct* Ant, double Move_Angle) {
 }
 
 void move_randomly(struct ant_struct* Ant) {
+   /* 
     double Move_Angle = randfrom(0, 2*M_PI);
     move_direction(Ant, Move_Angle);
-    /*
+   */
+    
     double Move_Angle = randfrom(-Ant_View_Angle, Ant_View_Angle);
     move_direction(Ant, Ant->angle + Move_Angle);
-  */   
+     
 }
 
 void delete_object(void* Object, int type){
     //this causes a segfault
     if(type == Type_Food) {
         struct food_struct* Food = (struct food_struct*)Object;
-        (*(Food->next)).last = Food->last;
-        (*(Food->last)).next = Food->next;
+        (Food->next)->last = Food->last;
+        (Food->last)->next = Food->next;
         free(Food);
     }
 }
+
+int render_ant(struct ant_struct* Ant, sf::RenderWindow* window) {
+    //need to make this depend on the position of the ant
+    //TODO: View Cone
+    if (Ant->state == Ant_Foraging) {
+        sf::CircleShape shape(3);
+        shape.setFillColor(sf::Color(250, 0, 250));
+        shape.setPosition(Ant->xpos, Ant->ypos);
+        window->draw(shape);
+        return 1;
+
+    }
+     if (Ant->state == Ant_Homing) {
+        sf::CircleShape shape(3);
+        shape.setFillColor(sf::Color(0, 0, 250));
+        shape.setPosition(Ant->xpos, Ant->ypos);
+        window->draw(shape);
+        return 1;
+    }
+    return 0;
+}
+
+int render_food(struct food_struct* Food, sf::RenderWindow* window) {
+    if (Food->carrying == NULL) {
+        sf::CircleShape shape(3);
+        shape.setFillColor(sf::Color(0, 255, 0));
+        shape.setPosition(Food->xpos, Food->ypos);
+        window->draw(shape);
+        return 0;
+    }
+    sf::CircleShape shape(3);
+    shape.setFillColor(sf::Color(0, 255, 0));
+    shape.setPosition((Food->carrying)->xpos, (Food->carrying)->ypos);
+    window->draw(shape);
+    return 0;
+}
+
+int render_colony(struct colony_struct* Colony, sf::RenderWindow* window) {
+    sf::CircleShape shape(Colony->radius);
+    shape.setFillColor(sf::Color(255, 0, 0));
+    shape.setPosition(Colony->xpos, Colony->ypos);
+    window->draw(shape);
+    return 0;
+}
+
 
 int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, struct trail_struct* Foragings_List, struct trail_struct* Homings_List, struct colony_struct* Colonys_List) {
     
     //Ant needs to be dropping trails depending on its state
 
     if ((*Ant_Address).state == Ant_Foraging) {
-
-        struct food_struct Food_Item = *Foods_List;
+        
+        //check if food is left in the level
+        struct food_struct* Food_Item = Foods_List;
         int Amount_Food = 0;
         double Average_Angle = 0;
         int Looping = 1;
         while(Looping) {
 
             //check if we can pick up the food
-            if (in_interact_range(Ant_Address, &Food_Item, Type_Food) && Food_Item.carrying == NULL) {
-                (*Ant_Address).state = Ant_Homing;
-                (*Ant_Address).carrying = &Food_Item; //especially this line  
-                Food_Item.carrying = Ant_Address;
+            if (in_interact_range(Ant_Address, Food_Item, Type_Food) && Food_Item->carrying == NULL) {
+                pickup_food(Ant_Address, Food_Item);
                 return 1;
             }
-            //otherwise check if we can see the food 
+            //otherwise check if we can see the food
+            //TODO: Verfiy that this kind of logic actaully works (this is probably dogshit)
+            //New system should be find the closest within a 360 degree circle and then if you can't see anythign you will find the next cloesst one which is in the view cone
             double Food_Angle = 0; 
 
-            if (in_view_cone(Ant_Address, &Food_Item, &Food_Angle, Type_Food)) {
+            if (in_view_cone(Ant_Address, Food_Item, &Food_Angle, Type_Food)) {
                 Average_Angle = (Average_Angle * Amount_Food + (Food_Angle))/(Amount_Food+1); 
                 Amount_Food++;
             }
-            if (Food_Item.next != NULL) {
-                Food_Item = *(Food_Item.next); // Follow the trail
+            if (Food_Item->next != NULL) {
+                Food_Item = (Food_Item->next); // Follow the trail
             }
             else {
                 Looping = 0; //Terminate the loop 
@@ -449,7 +514,6 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
     }
     
     if ((*Ant_Address).state == Ant_Homing) {
-
         //Check if you can see a colony
         struct colony_struct Colony = *Colonys_List;
         double Homing_Angle;
@@ -535,36 +599,52 @@ struct setup_struct* setup() {
     struct setup_struct* Setup_Data = (struct setup_struct*)malloc(sizeof(struct setup_struct));
     Setup_Data->ants_list = NULL;
     for (int i = 0 ; i < Number_Ants; i++) {
-        init_ant(&(Setup_Data->ants_list), randfrom(-Board_Size,Board_Size), randfrom(-Board_Size,Board_Size));
+        init_ant(&(Setup_Data->ants_list), randfrom(0,Canvas_X), randfrom(0, Canvas_Y));
     }
     Setup_Data->colonys_list = NULL;
-    struct colony_struct* Colony = init_colony(&(Setup_Data->colonys_list), randfrom(-Board_Size, Board_Size), randfrom(-Board_Size, Board_Size), 3.0);
-    printf("Colony Created at: (%f, %f)\n", Colony->xpos, Colony->ypos);
-    printf("Colony Radius: %f\n", Colony->radius);
+    struct colony_struct* Colony = init_colony(&(Setup_Data->colonys_list), randfrom(0,Canvas_X), randfrom(0, Canvas_Y), 15.0);
     Setup_Data->foods_list = NULL;
     for (int i = 0 ; i < Number_Foods; i++) {
-        struct food_struct* Food = init_food(&(Setup_Data->foods_list), randfrom(-Board_Size,Board_Size), randfrom(-Board_Size,Board_Size));
-        printf("Food created at: (%f, %f)\n", Food->xpos, Food->ypos); 
+        struct food_struct* Food = init_food(&(Setup_Data->foods_list), randfrom(0,Canvas_X), randfrom(0, Canvas_Y));
         }
     Setup_Data->foragings_list = NULL;
     Setup_Data->homings_list = NULL;
     return Setup_Data;
 }
 
-void loop(struct ant_struct** Ants_List, struct trail_struct** Homings_List, struct trail_struct** Foragings_List, struct food_struct** Foods_List, struct colony_struct** Colonys_List) {
+void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, struct trail_struct** Homings_List, struct trail_struct** Foragings_List, struct food_struct** Foods_List, struct colony_struct** Colonys_List) {
 
     
     // Set of Walls in the Level (Investigate what datatype to use)
-
+    
+    //ants
     struct ant_struct* Ant_Address = *Ants_List;
     while (Ant_Address->next != NULL) {
         ant_update(Ant_Address, *Foods_List, *Foragings_List, *Homings_List, *Colonys_List);
-        printf("Ant pos: (%f, %f)\n", Ant_Address->xpos, Ant_Address->ypos);
+        render_ant(Ant_Address, window);
+        //draw the ant
         Ant_Address = Ant_Address->next;
     }
     ant_update(Ant_Address, *Foods_List, *Foragings_List, *Homings_List, *Colonys_List);
-    printf("Ant pos: (%f, %f)\n", Ant_Address->xpos, Ant_Address->ypos);
-/*
+    render_ant(Ant_Address, window);
+
+    //foods
+    struct food_struct* Food_Address = *Foods_List;
+    while (Food_Address->next != NULL) {
+        render_food(Food_Address, window);
+        Food_Address = Food_Address->next;
+    }
+    render_food(Food_Address, window);
+ 
+    struct colony_struct* Colony_Address = *Colonys_List;
+    while (Colony_Address->next != NULL) {
+        render_colony(Colony_Address, window);
+        Colony_Address = Colony_Address->next;
+    }
+    render_colony(Colony_Address, window);
+
+
+    /*
     struct trail_struct Homing_Address = *Homings_List;
     while (Homing_Address.next != NULL) {
         //trail_update(Homing_Address);
@@ -592,6 +672,14 @@ int main() {
 
     srand((unsigned int)time(NULL));
     struct setup_struct* Setup_Data = setup();
+    
+    //window init
+    sf::RenderWindow window(sf::VideoMode(Canvas_X, Canvas_Y) , "Ant Simulation");
+    window.setVerticalSyncEnabled(true); // call it once, after creating the window
+    window.setActive(true);
+    window.setFramerateLimit(60); //could have somethign like microstepping in this
+
+
     //Elaborate setupdata
     struct ant_struct* Ants_List = (*Setup_Data).ants_list;
     struct trail_struct* Homings_List = (*Setup_Data).homings_list;
@@ -599,9 +687,36 @@ int main() {
     struct food_struct* Foods_List = (*Setup_Data).foods_list;
     struct colony_struct* Colonys_List = (*Setup_Data).colonys_list;
 
-    for (int i = 0; i < Simulation_Steps; i++) {
-        printf("Looping: %d\n", i);
-        loop(&Ants_List, &Homings_List, &Foragings_List, &Foods_List, &Colonys_List);
+    //need to learn how to run things while the window is open
+    int i = 0;
+    while (window.isOpen())
+    {
+        sf::Event event;
+        while (window.pollEvent(event))
+        {
+            switch (event.type)
+            {
+            case sf::Event::Closed:
+                window.close();
+                //run the exit routine otherwise
+                break;
+            default:
+                break;
+            }
+
+        }
+        // clear the window with black color
+        window.clear(sf::Color::Black);
+//        printf("Looping %d\n", i);
+        //loop function should deal with window 
+        loop(&window, &Ants_List, &Homings_List, &Foragings_List, &Foods_List, &Colonys_List);
+        i++; 
+             
+        // end the current frame
+        window.display();
+
+
+
     }
     return 0;
 }

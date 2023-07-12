@@ -156,3 +156,4 @@ src/lib/libvorbisenc.a
 src/lib/libvorbisfile.a
 openal32.dll
 *.o
+*.exe
