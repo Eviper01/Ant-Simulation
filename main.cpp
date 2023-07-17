@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -16,7 +17,12 @@
 #define Number_Ants 20
 #define Canvas_X 1280
 #define Canvas_Y 720
-#define Number_Foods 500
+#define Number_Foods 50
+
+//field/trail/horomone behaviour
+#define Trail_Increment 1.0 //raw amount that gets added by each ant
+#define Trail_Decay 0.8   //percent left per tick
+#define Trail_Diffuse 0.1 //percent after decay that spreads to the adjacenet nodes
 
 //Ant States
 #define Ant_Foraging 0
@@ -32,8 +38,7 @@
 
 //logic
 #define Type_Food 0
-#define Type_Trail 1
-#define Type_Colony 2
+#define Type_Colony 1
 
 //ObjectStructs:
 struct food_struct {
@@ -42,14 +47,6 @@ struct food_struct {
     double xpos;
     double ypos;
     struct ant_struct* carrying;
-};
-
-struct trail_struct{
-    struct trail_struct* next;
-    double xpos;
-    double ypos;
-    double lifetime;
-
 };
 
 struct ant_struct{
@@ -68,12 +65,9 @@ struct colony_struct {
     double radius;
 };
 
-
 struct setup_struct{
     struct ant_struct*      ants_list;
     struct food_struct*     foods_list;
-    struct trail_struct*    foragings_list;
-    struct trail_struct*    homings_list;
     struct colony_struct*   colonys_list;
 };
 
@@ -261,9 +255,6 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_X,
         }
         return 0;
     }
-    if (type == Type_Trail) {
-        return 0;
-    }
 
     if (type == Type_Colony) {
         //This will be square detection
@@ -308,7 +299,6 @@ void move_randomly(struct ant_struct* Ant) {
    
     double Move_Angle = randfrom(-Ant_View_Angle, Ant_View_Angle);
     move_direction(Ant, Ant->angle + Move_Angle);
-     
 }
 
 void delete_object(void* Object, int type){
@@ -390,11 +380,19 @@ int render_colony(struct colony_struct* Colony, sf::RenderWindow* window) {
     return 0;
 }
 
-int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, struct trail_struct* Foragings_List, struct trail_struct* Homings_List, struct colony_struct* Colonys_List) {
+int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  double* Foraging_Field, double* Homing_Field, struct colony_struct* Colonys_List) {
 
     //Ant needs to be dropping trails depending on its state
-
+    //
+    //
+    
+    
+    
     if ((*Ant_Address).state == Ant_Foraging) {
+
+
+        *(Foraging_Field + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
+
 
         //check if food is left in the level
         if (Foods_List == NULL) {
@@ -437,24 +435,22 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
             move_xy(Ant_Address, Move_X, Move_Y); 
             return 1;
         }
+        
 
 
+        //determine which direction has the highest hormone strenght
 
+        //could not find them so
 
-        //Can't see any food so we will check the trails
-        if (Foragings_List == NULL) {
-            move_randomly(Ant_Address);
-            return 1;
-        }
-
-        //logic from food
-
-
-
+        move_randomly(Ant_Address);
+        return 1;
 
     }
 
     if ((*Ant_Address).state == Ant_Homing) {
+
+        
+        *(Homing_Field + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
         //Check if you can see a colony
         struct colony_struct* Colony = Colonys_List;
         double Homing_Angle;
@@ -495,30 +491,10 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
 
         //could not find any colonies so now look for trails
 
-        if (Homings_List == NULL) {
-            move_randomly(Ant_Address);
-            return 1;
-        }
         
-        //there are some trails so do a trail serach
-        struct trail_struct* Homing_Particle = Homings_List;
-        Looping = 1;
+        //move the direction with the highest strenght
 
-        while(Looping) {
-           
 
-            //Cehck if you can see a trail             
-            
-            //
-
-            if (Homing_Particle->next == NULL) {
-                Looping = 0; 
-            }
-            else {
-                Homing_Particle = Homing_Particle->next;
-            }
-
-        }
 
         //Could not see anything so
         move_randomly(Ant_Address);
@@ -542,12 +518,10 @@ struct setup_struct* setup() {
     for (int i = 0 ; i < Number_Foods; i++) {
         struct food_struct* Food = init_food(&(Setup_Data->foods_list), Cluster_X + randfrom(-5,5), Cluster_Y + randfrom(-5, 5));
     }
-    Setup_Data->foragings_list = NULL;
-    Setup_Data->homings_list = NULL;
     return Setup_Data;
 }
 
-void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, struct trail_struct** Homings_List, struct trail_struct** Foragings_List, struct food_struct** Foods_List, struct colony_struct** Colonys_List) {
+void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Foraging_Field, double* Homing_Field, struct food_struct** Foods_List, struct colony_struct** Colonys_List) {
 
     
     // Set of Walls in the Level (Investigate what datatype to use)
@@ -555,12 +529,12 @@ void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, struct trail_
     //ants
     struct ant_struct* Ant_Address = *Ants_List;
     while (Ant_Address->next != NULL) {
-        ant_update(Ant_Address, *Foods_List, *Foragings_List, *Homings_List, *Colonys_List);
+        ant_update(Ant_Address, *Foods_List, Foraging_Field, Homing_Field, *Colonys_List);
         render_ant(Ant_Address, window);
         //draw the ant
         Ant_Address = Ant_Address->next;
     }
-    ant_update(Ant_Address, *Foods_List, *Foragings_List, *Homings_List, *Colonys_List);
+    ant_update(Ant_Address, *Foods_List, Foraging_Field, Homing_Field, *Colonys_List);
     render_ant(Ant_Address, window);
 
     //foods
@@ -578,25 +552,6 @@ void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, struct trail_
     }
     render_colony(Colony_Address, window);
 
-
-    /*
-    struct trail_struct Homing_Address = *Homings_List;
-    while (Homing_Address.next != NULL) {
-        //trail_update(Homing_Address);
-        Homing_Address = *Homing_Address.next;
-    }
-    //!!!Perform the loop contentx explicitly on the last element
-
-    struct trail_struct Foraging_Address = *Foragings_List;
-    while (Foraging_Address.next != NULL) {
-        //trail_update(Foraging_Address);
-        Foraging_Address = *Foraging_Address.next;
-    }
-    //!!!Perform the loop contentx explicitly on the last element
-
-    //Loop that does something with Colonys
-
-*/
 
     //Command to save the state
 
@@ -617,12 +572,13 @@ int main() {
 
     //Elaborate setupdata
     struct ant_struct* Ants_List = (*Setup_Data).ants_list;
-    struct trail_struct* Homings_List = (*Setup_Data).homings_list;
-    struct trail_struct* Foragings_List = (*Setup_Data).foragings_list;
     struct food_struct* Foods_List = (*Setup_Data).foods_list;
     struct colony_struct* Colonys_List = (*Setup_Data).colonys_list;
 
-    //need to learn how to run things while the window is open
+
+    double* Foraging_Field  = (double*)malloc(Canvas_X * Canvas_X * sizeof(double));
+    double* Homing_Field = (double*)malloc(Canvas_X * Canvas_X * sizeof(double));
+
     int i = 0;
     while (window.isOpen())
     {
@@ -644,7 +600,7 @@ int main() {
         window.clear(sf::Color::Black);
 //        printf("Looping %d\n", i);
         //loop function should deal with window 
-        loop(&window, &Ants_List, &Homings_List, &Foragings_List, &Foods_List, &Colonys_List);
+        loop(&window, &Ants_List, Foraging_Field, Homing_Field, &Foods_List, &Colonys_List);
         i++; 
              
         // end the current frame
