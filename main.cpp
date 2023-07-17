@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstddef>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -191,7 +192,6 @@ int in_sense_range(struct ant_struct* Ant, void* Object, double* Target_X, doubl
         *Target_Y = Delta_Y;
         
         if(Magnitude_Squared < pow(Ant_Sense_Range, 2)) {
-            printf("Extra Sensory Preception Triggered\n");
             return 1;
         }
         return 0;
@@ -256,7 +256,6 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_X,
         if((Magnitude_Squared <  pow(Ant_View_Range,2)) && (Delta_Angle < Ant_View_Angle)) {
             *Target_X = Delta_X;
             *Target_Y = Delta_Y;
-            printf("Spotted some delicous food\n");
             return 1;
 
         }
@@ -267,9 +266,7 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_X,
     }
 
     if (type == Type_Colony) {
-        //TODO: Verify that this is actaully working
-        //
-        //To check if we can see this we need to determine if the view cone overlaps
+        //This will be square detection
         struct colony_struct* Colony = (struct colony_struct*)Object;
         double Delta_X = (*Colony).xpos - (*Ant_Address).xpos;
         double Delta_Y = (*Colony).ypos - (*Ant_Address).ypos;
@@ -277,111 +274,14 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_X,
         double Delta_Angle = fabs(Relative_Angle-(*Ant_Address).angle); //Absoulte value
         double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
 
-        if(Magnitude_Squared <  pow(Ant_View_Range, 2) && Delta_Angle < Ant_View_Angle) {
+        if(Magnitude_Squared <  pow(Ant_View_Range + Colony->radius, 2) && Delta_Angle < Ant_View_Angle) {
             //update the poitner to the angle
             *Target_X = Delta_X;
             *Target_Y = Delta_Y;
             return 1;
 
         }
-
-        //expand the colony bounding box into coefficents
-        //y = cy +/- Sqrt(r^2 - x^2 +2 x cx - cx^2)
-
-        //check if the left or right ray intersect the circle and lies on the reigion we care about
-
-        //(y = m*x-m*ax+ay
-        //m = tan(theta_ant +/- offset)
-        //so putting it together gives us
-        //m*x - m*ax + ay -cy = +/-Sqrt(r^2 - x^2 + 2*x*cx - cx^2)
-        //Squaring to prouduce a quadratic
-        //m^2*x^2 + 2*m*(ay-m*ax-cy)*x + (ay-m*ax-cy)^2 = -x^2 + 2*x*cx + (r^2-cx)
-        //let s = ay-m*ax-cy
-        //(m^2 + 1)*x^2 + (2*m*s-2*cx)*x +s^2+cx^2-r^2 = 0
-        //Delta = (2*m*s-2*cx)^2 - 4*(m^2+1)*(s^2+cx^2-r^2) check the sign of this for intersection
-        //then solve the x values, check if theyre in an acceptable range
-        // x = 2*m*s 
-        //xbound is ant_coord
-        //xbound2 is Ant_View_Range*cos(oreintation p/m view angle) 
-
-        //Positive Ray Check
-        double m = tan((*Ant_Address).angle + Ant_View_Angle);
-        double s = (*Ant_Address).ypos - m*(*Ant_Address).xpos - (*Colony).ypos;
-        double Delta = pow(2*m*s-2*((*Colony).xpos), 2) - 4*(pow(m,2)+1)*(pow(s,2)+pow((*Colony).xpos,2)-pow((*Colony).radius,2));
-        if (Delta > 0) {
-            double xbound1 = (*Ant_Address).xpos;
-            double xbound2 = (Ant_Address->xpos) + Ant_View_Range*cos((*Ant_Address).angle + Ant_View_Angle);
-            double x1 = (-(2*m*s-2*(*Colony).xpos) + sqrt(Delta))/(2*(pow(m,2)+1));
-            if (isValueInRange(x1, xbound1, xbound2)) {
-                *Target_X = Delta_X;
-                *Target_Y = Delta_Y;
-                return 1;
-            }
-            double x2 = (-(2*m*s-2*(*Colony).xpos) - sqrt(Delta))/(2*(pow(m,2)+1));
-            if (isValueInRange(x2, xbound1, xbound2)) {
-                *Target_X = Delta_X;
-                *Target_Y = Delta_Y;
-                return 1;
-            }
-        }
-        //Neagtive Ray Check
-        m = tan((*Ant_Address).angle - Ant_View_Angle);
-        s = (*Ant_Address).ypos - m*(*Ant_Address).xpos - (*Colony).ypos;
-        Delta = pow(2*m*s-2*((*Colony).xpos), 2) - 4*(pow(m,2)+1)*(pow(s,2)+pow((*Colony).xpos,2)-pow((*Colony).radius,2));
-        if (Delta > 0) {
-            double xbound1 = (*Ant_Address).xpos;
-            double xbound2 = (Ant_Address->xpos) + Ant_View_Range*cos((*Ant_Address).angle - Ant_View_Angle);
-
-            double x1 = (-(2*m*s-2*(*Colony).xpos) + sqrt(Delta))/(2*(pow(m,2)+1));
-            if (isValueInRange(x1, xbound1, xbound2)) {
-                *Target_X = Delta_X;
-                *Target_Y = Delta_Y;
-                return 1;
-
-            }
-            double x2 = (-(2*m*s-2*(*Colony).xpos) - sqrt(Delta))/(2*(pow(m,2)+1));
-            if (isValueInRange(x2, xbound1, xbound2)) {
-                *Target_X = Delta_X;
-                *Target_Y = Delta_Y;
-                return 1;
-            }
-        }
-
-        //Circle Arc Check
-        //Colony Bounding Equation:
-        //y = cy +/- Sqrt(r^2 - x^2 +2 x cx - cx^2)
-        //Cone Arc Bounding Equation:
-        //y = ay +/- Sqrt(AVR^2 - x^2 + 2 x ax - ax^2)
-        //Combined
-
-        //dx = cx-ax
-        //dy = cy-ay
-        //s = dx^2+dy^2
-
-        //Delta = -dy^2*(r^4+(avr-s)^2-2r^2(avr+s)
-
-        double dx = Colony->xpos - Ant_Address->xpos;
-        double dy = Colony->xpos - Ant_Address->ypos;
-        s = pow(dx,2) + pow(dy,2);
-        Delta = -pow(dy,2)*( pow(Colony->radius,4) + (Ant_View_Range - s) - 2*pow( Colony->radius, 2)*(Ant_View_Range + s));
-        if(Delta > 0) {
-            double xbound1 = (Ant_Address->xpos) + Ant_View_Range*cos((*Ant_Address).angle - Ant_View_Angle);
-            double xbound2 = (Ant_Address->xpos) + Ant_View_Range*cos((*Ant_Address).angle + Ant_View_Angle);
-
-            double x1 = (Ant_View_Range*dx - dx*pow(Colony->radius, 2) + (2*Colony->xpos)*s + sqrt(Delta))/(2*s);
-            if(isValueInRange(x1, xbound1,xbound2)) {
-                *Target_X = Delta_X;
-                *Target_Y = Delta_Y;               
-                return 1;
-            }
-            double x2 = (Ant_View_Range*dx - dx*pow(Colony->radius, 2) + (2*Colony->xpos)*s - sqrt(Delta))/(2*s);;
-            if(isValueInRange(x2, xbound1,xbound2)) {
-                *Target_X = Delta_X;
-                *Target_Y = Delta_Y;
-                return 1;
-            }
-        }
-        return 0;
+       return 0;
 
     }
     return -1; //throw an error
@@ -390,7 +290,7 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_X,
 
 void move_xy(struct ant_struct* Ant, double xRel, double yRel) {
 
-    double Length_Squared = pow(xRel, 2) + pow(xRel, 2);
+    double Length_Squared = pow(xRel, 2) + pow(yRel, 2);
     double Correction_Factor = sqrt(Ant_Movement_Range/Length_Squared);
     Ant->xpos += xRel*Correction_Factor;
     Ant->ypos += yRel*Correction_Factor;
@@ -399,7 +299,7 @@ void move_xy(struct ant_struct* Ant, double xRel, double yRel) {
 
 
 void move_direction(struct ant_struct* Ant, double Move_Angle) {
-    (*Ant).angle = Move_Angle;
+    Ant->angle = Move_Angle;
     Ant->xpos = Ant->xpos +  (double)Ant_Movement_Range*cos(Move_Angle);
     Ant->ypos = Ant->ypos + (double)Ant_Movement_Range*sin(Move_Angle);
 }
@@ -446,6 +346,7 @@ int render_ant(struct ant_struct* Ant, sf::RenderWindow* window) {
 
     if (Ant->state == Ant_Foraging) {
         sf::CircleShape shape(3);
+        shape.setOrigin(1.5, 1.5);
         shape.setFillColor(sf::Color(250, 0, 250));
         shape.setPosition(Ant->xpos, Ant->ypos);
         window->draw(shape);
@@ -454,6 +355,7 @@ int render_ant(struct ant_struct* Ant, sf::RenderWindow* window) {
     }
     if (Ant->state == Ant_Homing) {
         sf::CircleShape shape(3);
+        shape.setOrigin(1.5, 1.5);
         shape.setFillColor(sf::Color(0, 0, 250));
         shape.setPosition(Ant->xpos, Ant->ypos);
         window->draw(shape);
@@ -465,12 +367,14 @@ int render_ant(struct ant_struct* Ant, sf::RenderWindow* window) {
 int render_food(struct food_struct* Food, sf::RenderWindow* window) {
     if (Food->carrying == NULL) {
         sf::CircleShape shape(3);
+        shape.setOrigin(1.5, 1.5);
         shape.setFillColor(sf::Color(0, 255, 0));
         shape.setPosition(Food->xpos, Food->ypos);
         window->draw(shape);
         return 0;
     }
     sf::CircleShape shape(3);
+    shape.setOrigin(1.5, 1.5);
     shape.setFillColor(sf::Color(0, 255, 0));
     shape.setPosition((Food->carrying)->xpos, (Food->carrying)->ypos);
     window->draw(shape);
@@ -479,6 +383,7 @@ int render_food(struct food_struct* Food, sf::RenderWindow* window) {
 
 int render_colony(struct colony_struct* Colony, sf::RenderWindow* window) {
     sf::CircleShape shape(Colony->radius);
+    shape.setOrigin(Colony->radius/2, Colony->radius/2); 
     shape.setFillColor(sf::Color(255, 0, 0));
     shape.setPosition(Colony->xpos, Colony->ypos);
     window->draw(shape);
@@ -557,6 +462,11 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
         double Max_Squared_Distance = -1;
         int Looping = 1;
         int Found = 0;
+
+        double Target_X;
+        double Target_Y;
+        double Distance;
+
         while(Looping) {
 
             if(in_interact_range(Ant_Address, Colony, Type_Colony)) {
@@ -567,9 +477,13 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
 
                 return 1;
             }
+            
+            //then check if you can see some colonies
+            if(in_view_cone(Ant_Address, Colony, &Target_X, &Target_Y, &Distance, Type_Colony)) {
+                move_xy(Ant_Address, Target_X, Target_Y); 
+            }
 
-            //look for colonies
-
+            
             if(Colony->next == NULL){
                 Looping = 0;
             }
@@ -579,6 +493,37 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
 
         }
 
+        //could not find any colonies so now look for trails
+
+        if (Homings_List == NULL) {
+            move_randomly(Ant_Address);
+            return 1;
+        }
+        
+        //there are some trails so do a trail serach
+        struct trail_struct* Homing_Particle = Homings_List;
+        Looping = 1;
+
+        while(Looping) {
+           
+
+            //Cehck if you can see a trail             
+            
+            //
+
+            if (Homing_Particle->next == NULL) {
+                Looping = 0; 
+            }
+            else {
+                Homing_Particle = Homing_Particle->next;
+            }
+
+        }
+
+        //Could not see anything so
+        move_randomly(Ant_Address);
+        return 1;
+
     }
     return -1;
 }
@@ -587,14 +532,16 @@ struct setup_struct* setup() {
     struct setup_struct* Setup_Data = (struct setup_struct*)malloc(sizeof(struct setup_struct));
     Setup_Data->ants_list = NULL;
     for (int i = 0 ; i < Number_Ants; i++) {
-        init_ant(&(Setup_Data->ants_list), randfrom(0,Canvas_X), randfrom(0, Canvas_Y));
+        init_ant(&(Setup_Data->ants_list), Canvas_X/2, Canvas_Y/2);
     }
     Setup_Data->colonys_list = NULL;
-    struct colony_struct* Colony = init_colony(&(Setup_Data->colonys_list), randfrom(0,Canvas_X), randfrom(0, Canvas_Y), 15.0);
+    struct colony_struct* Colony = init_colony(&(Setup_Data->colonys_list), Canvas_X/2, Canvas_Y/2, Canvas_X*Canvas_Y/60000);
     Setup_Data->foods_list = NULL;
+    double Cluster_X = randfrom(0, Canvas_X);
+    double Cluster_Y = randfrom(0, Canvas_Y);
     for (int i = 0 ; i < Number_Foods; i++) {
-        struct food_struct* Food = init_food(&(Setup_Data->foods_list), randfrom(0,Canvas_X), randfrom(0, Canvas_Y));
-        }
+        struct food_struct* Food = init_food(&(Setup_Data->foods_list), Cluster_X + randfrom(-5,5), Cluster_Y + randfrom(-5, 5));
+    }
     Setup_Data->foragings_list = NULL;
     Setup_Data->homings_list = NULL;
     return Setup_Data;
