@@ -14,14 +14,14 @@
 #define M_PI 3.14159265358979323846  /* pi */
 
 //Simulation Parameters
-#define Number_Ants 20
+#define Number_Ants 200
 #define Canvas_X 1280
 #define Canvas_Y 720
 #define Number_Foods 50
 
 //field/trail/horomone behaviour
 #define Trail_Increment 1.0 //raw amount that gets added by each ant
-#define Trail_Decay 0.8   //percent left per tick
+#define Trail_Decay 0.9999   //percent left per tick
 #define Trail_Diffuse 0.1 //percent after decay that spreads to the adjacenet nodes
 
 //Ant States
@@ -39,7 +39,8 @@
 //logic
 #define Type_Food 0
 #define Type_Colony 1
-
+#define Type_Foraging 2
+#define Type_Homing 3
 //ObjectStructs:
 struct food_struct {
     struct food_struct* next;
@@ -278,7 +279,8 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_X,
     return -1; //throw an error
 }
 
-
+//TODO: Prevent movement outside of the boundaries
+//
 void move_xy(struct ant_struct* Ant, double xRel, double yRel) {
 
     double Length_Squared = pow(xRel, 2) + pow(yRel, 2);
@@ -380,6 +382,43 @@ int render_colony(struct colony_struct* Colony, sf::RenderWindow* window) {
     return 0;
 }
 
+int renderAndupdate_field(double* field, int type, sf::RenderWindow* window) {
+
+    for (int Row = 0; Row < Canvas_X; Row++ ) {
+        for(int Column = 0; Column < Canvas_Y; Column++) {
+    
+
+
+
+
+            double* intensity = (field + Canvas_X*Row+ Column);
+            *intensity *= Trail_Decay;
+
+            //diffusion
+
+            if (*intensity > 0.2) {
+                sf::RectangleShape rectangle(sf::Vector2f(1.0, 1.0));
+                rectangle.setPosition(Row, Column);
+
+                if (type == Type_Foraging) {
+                    rectangle.setFillColor(sf::Color(0, 255, 0, 128));
+                } 
+                if (type == Type_Homing) {
+                    rectangle.setFillColor(sf::Color(0, 0, 255, 128));
+                }
+
+                window->draw(rectangle);
+            }
+        }
+    }
+    
+    return 1;
+}
+
+
+
+
+
 int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  double* Foraging_Field, double* Homing_Field, struct colony_struct* Colonys_List) {
 
     //Ant needs to be dropping trails depending on its state
@@ -439,7 +478,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
 
 
         //determine which direction has the highest hormone strenght
-
+        //TODO: Hormone pathfinding
         //could not find them so
 
         move_randomly(Ant_Address);
@@ -550,7 +589,12 @@ void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Forag
         render_colony(Colony_Address, window);
         Colony_Address = Colony_Address->next;
     }
+
+
     render_colony(Colony_Address, window);
+    renderAndupdate_field(Foraging_Field, Type_Foraging, window);
+    renderAndupdate_field(Homing_Field, Type_Homing, window);
+
 
 
     //Command to save the state
@@ -598,7 +642,7 @@ int main() {
         }
         // clear the window with black color
         window.clear(sf::Color::Black);
-//        printf("Looping %d\n", i);
+        //printf("Looping %d\n", i);
         //loop function should deal with window 
         loop(&window, &Ants_List, Foraging_Field, Homing_Field, &Foods_List, &Colonys_List);
         i++; 
