@@ -1,3 +1,4 @@
+#include <cmath>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -11,7 +12,7 @@
 #define M_PI 3.14159265358979323846  /* pi */
 
 //Simulation Parameters
-#define Number_Ants 125
+#define Number_Ants 20
 #define Canvas_X 1280
 #define Canvas_Y 720
 #define Number_Foods 500
@@ -21,8 +22,9 @@
 #define Ant_Homing 1
 
 //Ant Parameters
-#define Ant_View_Range 10
-#define Ant_View_Angle 0.3 //Radians
+#define Ant_View_Range 20
+#define Ant_Sense_Range 0
+#define Ant_View_Angle 0.4 //Radians
 #define Ant_Interact_Range 5                           
 #define Ant_Movement_Range 1
 
@@ -32,7 +34,7 @@
 #define Type_Trail 1
 #define Type_Colony 2
 
-//Object Structs;
+//ObjectStructs:
 struct food_struct {
     struct food_struct* next;
     struct food_struct* last;
@@ -74,6 +76,7 @@ struct setup_struct{
     struct colony_struct*   colonys_list;
 };
 
+//MathHelpers:
 double isValueInRange(double value, double xbound1, double xbound2) {
     // Check if xbound1 and xbound2 are in numerical order
     if (xbound1 < xbound2) {
@@ -98,33 +101,7 @@ double randfrom(double min, double max)
     return min + (rand() / div);
 }
 
-
-
-int in_interact_range(struct ant_struct* Ant_Address, void* Object, int type) {
-    
-    if(type == Type_Food) {
-        struct food_struct* Food = (struct food_struct*)Object;
-        double Delta_X = (*Food).xpos - (*Ant_Address).xpos;
-        double Delta_Y = (*Food).ypos - (*Ant_Address).ypos;
-        double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
-        if(Magnitude_Squared < Ant_Interact_Range) {
-            return 1;
-        }
-        return 0;
-    }
-    if(type == Type_Colony) {
-       struct colony_struct* Colony = (struct colony_struct*)Object;
-        double Delta_X = (*Colony).xpos - (*Ant_Address).xpos;
-        double Delta_Y = (*Colony).ypos - (*Ant_Address).ypos;
-        double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
-        if(Magnitude_Squared < pow(Colony->radius,2)) {
-            return 1;
-        }
-        return 0;  
-    }
-    return -1;
-}
-
+//DataInits:
 struct food_struct* init_food(struct food_struct** Foods_List, double xpos, double ypos) {
     
     if(*Foods_List == NULL) {
@@ -200,54 +177,95 @@ struct ant_struct* init_ant(struct ant_struct** Ants_List, double xpos, double y
     return (*Ant_Address).next;
 }
 
-int pickup_food(struct ant_struct* Ant, struct food_struct* Food) {
-    //set the pointers
-    Ant->state = Ant_Homing;
-    Ant->carrying = Food; //especially this line  
-    Food->carrying = Ant;
+//ObjectInteractions:
+int in_sense_range(struct ant_struct* Ant, void* Object, double* Target_X, double* Target_Y, double* Distance, int type) {
+
+    if (type == Type_Food) {
+        struct food_struct* Food = (struct food_struct*)Object;
+        double Delta_X = Food->xpos - Ant->xpos;
+        double Delta_Y = Food->ypos - Ant->ypos;
+        double Magnitude_Squared = pow(Delta_X, 2) + pow(Delta_Y, 2);
+        *Distance = Magnitude_Squared;
+        
+        *Target_X = Delta_X;
+        *Target_Y = Delta_Y;
+        
+        if(Magnitude_Squared < pow(Ant_Sense_Range, 2)) {
+            printf("Extra Sensory Preception Triggered\n");
+            return 1;
+        }
+        return 0;
+    }
+
+    if(type == Type_Colony) {
+        struct colony_struct* Colony = (struct colony_struct*)Object; 
+        double Delta_X = Colony->xpos - Ant->xpos;
+        double Delta_Y = Colony->ypos - Ant->ypos;
+        double Magnitude_Squared = pow(Delta_X, 2) + pow(Delta_Y, 2);
+        if (Magnitude_Squared < pow(Ant_Interact_Range + Colony->radius, 2)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    return -1;
+}
+
+int in_interact_range(struct ant_struct* Ant_Address, void* Object, int type) {
     
+    if(type == Type_Food) {
+        struct food_struct* Food = (struct food_struct*)Object;
+        double Delta_X = (*Food).xpos - (*Ant_Address).xpos;
+        double Delta_Y = (*Food).ypos - (*Ant_Address).ypos;
+        double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
+        if(Magnitude_Squared < pow(Ant_Interact_Range, 2)) {
+            return 1;
+        }
+        return 0;
+    }
+    if(type == Type_Colony) {
+       struct colony_struct* Colony = (struct colony_struct*)Object;
+        double Delta_X = (*Colony).xpos - (*Ant_Address).xpos;
+        double Delta_Y = (*Colony).ypos - (*Ant_Address).ypos;
+        double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
+        if(Magnitude_Squared < pow(Colony->radius,2)) {
+            return 1;
+        }
+        return 0;  
+    }
+    return -1;
+}
+
+int pickup_food(struct ant_struct* Ant, struct food_struct* Food) {
+    Ant->state = Ant_Homing;
+    Ant->carrying = Food; 
+    Food->carrying = Ant;
     return 0;
 }
 
-int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_Angle, int type) {
+int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_X, double* Target_Y, double* Distance, int type) {
 
     if (type == Type_Food) {
         struct food_struct* Food = (struct food_struct*)Object;
         double Delta_X = (*Food).xpos - (*Ant_Address).xpos;
         double Delta_Y = (*Food).ypos - (*Ant_Address).ypos;
-        double Relative_Angle = atan2(Delta_X,Delta_X);
+        double Relative_Angle = atan2(Delta_Y,Delta_X);
         double Delta_Angle = fabs(Relative_Angle-(*Ant_Address).angle); //Absoulte value
         double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
-
-        if(Magnitude_Squared <  Ant_View_Range && Delta_Angle < Ant_View_Range) {
-
-            //update the poitner to the angle
-            *Target_Angle = Relative_Angle;
-
+        *Distance = Magnitude_Squared;
+        if((Magnitude_Squared <  pow(Ant_View_Range,2)) && (Delta_Angle < Ant_View_Angle)) {
+            *Target_X = Delta_X;
+            *Target_Y = Delta_Y;
+            printf("Spotted some delicous food\n");
             return 1;
 
         }
         return 0;
     }
     if (type == Type_Trail) {
-
-        struct trail_struct* Trail = (struct trail_struct*)Object;
-        double Delta_X = (*Trail).xpos - (*Ant_Address).xpos;
-        double Delta_Y = (*Trail).ypos - (*Ant_Address).ypos;
-        double Relative_Angle = atan2(Delta_X,Delta_X);
-        double Delta_Angle = fabs(Relative_Angle-(*Ant_Address).angle); //Absoulte value
-        double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
-
-        if(Magnitude_Squared <  Ant_View_Range && Delta_Angle < Ant_View_Range) {
-
-            //update the poitner to the angle
-            *Target_Angle = Relative_Angle;
-
-            return 1;
-
-        }
         return 0;
     }
+
     if (type == Type_Colony) {
         //TODO: Verify that this is actaully working
         //
@@ -255,13 +273,14 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_An
         struct colony_struct* Colony = (struct colony_struct*)Object;
         double Delta_X = (*Colony).xpos - (*Ant_Address).xpos;
         double Delta_Y = (*Colony).ypos - (*Ant_Address).ypos;
-        double Relative_Angle = atan2(Delta_X,Delta_X);
+        double Relative_Angle = atan2(Delta_Y,Delta_X);
         double Delta_Angle = fabs(Relative_Angle-(*Ant_Address).angle); //Absoulte value
         double Magnitude_Squared = pow(Delta_X,2) + pow(Delta_Y, 2);
 
-        if(Magnitude_Squared <  Ant_View_Range && Delta_Angle < Ant_View_Range) {
+        if(Magnitude_Squared <  pow(Ant_View_Range, 2) && Delta_Angle < Ant_View_Angle) {
             //update the poitner to the angle
-            *Target_Angle = Relative_Angle;
+            *Target_X = Delta_X;
+            *Target_Y = Delta_Y;
             return 1;
 
         }
@@ -294,12 +313,14 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_An
             double xbound2 = (Ant_Address->xpos) + Ant_View_Range*cos((*Ant_Address).angle + Ant_View_Angle);
             double x1 = (-(2*m*s-2*(*Colony).xpos) + sqrt(Delta))/(2*(pow(m,2)+1));
             if (isValueInRange(x1, xbound1, xbound2)) {
-                *Target_Angle = Relative_Angle;
+                *Target_X = Delta_X;
+                *Target_Y = Delta_Y;
                 return 1;
             }
             double x2 = (-(2*m*s-2*(*Colony).xpos) - sqrt(Delta))/(2*(pow(m,2)+1));
             if (isValueInRange(x2, xbound1, xbound2)) {
-                *Target_Angle = Relative_Angle;
+                *Target_X = Delta_X;
+                *Target_Y = Delta_Y;
                 return 1;
             }
         }
@@ -313,13 +334,15 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_An
 
             double x1 = (-(2*m*s-2*(*Colony).xpos) + sqrt(Delta))/(2*(pow(m,2)+1));
             if (isValueInRange(x1, xbound1, xbound2)) {
-                *Target_Angle = Relative_Angle;
+                *Target_X = Delta_X;
+                *Target_Y = Delta_Y;
                 return 1;
 
             }
             double x2 = (-(2*m*s-2*(*Colony).xpos) - sqrt(Delta))/(2*(pow(m,2)+1));
             if (isValueInRange(x2, xbound1, xbound2)) {
-                *Target_Angle = Relative_Angle;
+                *Target_X = Delta_X;
+                *Target_Y = Delta_Y;
                 return 1;
             }
         }
@@ -347,12 +370,14 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_An
 
             double x1 = (Ant_View_Range*dx - dx*pow(Colony->radius, 2) + (2*Colony->xpos)*s + sqrt(Delta))/(2*s);
             if(isValueInRange(x1, xbound1,xbound2)) {
-                *Target_Angle = Relative_Angle;
+                *Target_X = Delta_X;
+                *Target_Y = Delta_Y;               
                 return 1;
             }
             double x2 = (Ant_View_Range*dx - dx*pow(Colony->radius, 2) + (2*Colony->xpos)*s - sqrt(Delta))/(2*s);;
             if(isValueInRange(x2, xbound1,xbound2)) {
-                *Target_Angle = Relative_Angle;
+                *Target_X = Delta_X;
+                *Target_Y = Delta_Y;
                 return 1;
             }
         }
@@ -363,20 +388,24 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_An
 }
 
 
+void move_xy(struct ant_struct* Ant, double xRel, double yRel) {
+
+    double Length_Squared = pow(xRel, 2) + pow(xRel, 2);
+    double Correction_Factor = sqrt(Ant_Movement_Range/Length_Squared);
+    Ant->xpos += xRel*Correction_Factor;
+    Ant->ypos += yRel*Correction_Factor;
+    Ant->angle = atan2(yRel, xRel);
+}
+
 
 void move_direction(struct ant_struct* Ant, double Move_Angle) {
-    //create a vector of lenght movement size in the direction of the ants orientation;
     (*Ant).angle = Move_Angle;
     Ant->xpos = Ant->xpos +  (double)Ant_Movement_Range*cos(Move_Angle);
     Ant->ypos = Ant->ypos + (double)Ant_Movement_Range*sin(Move_Angle);
 }
 
 void move_randomly(struct ant_struct* Ant) {
-   /* 
-    double Move_Angle = randfrom(0, 2*M_PI);
-    move_direction(Ant, Move_Angle);
-   */
-    
+   
     double Move_Angle = randfrom(-Ant_View_Angle, Ant_View_Angle);
     move_direction(Ant, Ant->angle + Move_Angle);
      
@@ -393,8 +422,28 @@ void delete_object(void* Object, int type){
 }
 
 int render_ant(struct ant_struct* Ant, sf::RenderWindow* window) {
-    //need to make this depend on the position of the ant
-    //TODO: View Cone
+
+    //Render the View Cone
+    sf::ConvexShape convex;
+    convex.setPointCount(3);
+    //must render all clockwise/ccw
+    convex.setPoint(0, sf::Vector2f(Ant->xpos, Ant->ypos));
+
+    float angle1 = Ant->angle - Ant_View_Angle;
+    float angle2 = Ant->angle + Ant_View_Angle;
+
+    if (angle1 > angle2) {
+        std::swap(angle1, angle2);
+    }
+
+    convex.setPoint(1, sf::Vector2f(Ant->xpos + Ant_View_Range * cos(angle1), Ant->ypos + Ant_View_Range * sin(angle1)));
+    convex.setPoint(2, sf::Vector2f(Ant->xpos + Ant_View_Range * cos(angle2), Ant->ypos + Ant_View_Range * sin(angle2)));
+
+
+
+    convex.setFillColor(sf::Color(255, 0, 0));
+    window->draw(convex);
+
     if (Ant->state == Ant_Foraging) {
         sf::CircleShape shape(3);
         shape.setFillColor(sf::Color(250, 0, 250));
@@ -403,7 +452,7 @@ int render_ant(struct ant_struct* Ant, sf::RenderWindow* window) {
         return 1;
 
     }
-     if (Ant->state == Ant_Homing) {
+    if (Ant->state == Ant_Homing) {
         sf::CircleShape shape(3);
         shape.setFillColor(sf::Color(0, 0, 250));
         shape.setPosition(Ant->xpos, Ant->ypos);
@@ -436,17 +485,22 @@ int render_colony(struct colony_struct* Colony, sf::RenderWindow* window) {
     return 0;
 }
 
-
 int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, struct trail_struct* Foragings_List, struct trail_struct* Homings_List, struct colony_struct* Colonys_List) {
-    
+
     //Ant needs to be dropping trails depending on its state
 
     if ((*Ant_Address).state == Ant_Foraging) {
-        
+
         //check if food is left in the level
+        if (Foods_List == NULL) {
+            printf("No Food\n");
+            return 0;
+        } 
+
         struct food_struct* Food_Item = Foods_List;
-        int Amount_Food = 0;
-        double Average_Angle = 0;
+        double Least_Mag_Squared = -1;
+        double Move_X = 0;
+        double Move_Y = 0;
         int Looping = 1;
         while(Looping) {
 
@@ -455,14 +509,16 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
                 pickup_food(Ant_Address, Food_Item);
                 return 1;
             }
-            //otherwise check if we can see the food
-            //TODO: Verfiy that this kind of logic actaully works (this is probably dogshit)
-            //New system should be find the closest within a 360 degree circle and then if you can't see anythign you will find the next cloesst one which is in the view cone
-            double Food_Angle = 0; 
+            double Food_Rel_X = 0;
+            double Food_Rel_Y = 0;
+            double Distance = 0;
+            if ((in_view_cone(Ant_Address, Food_Item, &Food_Rel_X, &Food_Rel_Y, &Distance, Type_Food) || in_sense_range(Ant_Address, Food_Item, &Food_Rel_X, &Food_Rel_Y, &Distance, Type_Food)) && Food_Item->carrying == NULL) {
+                if(Distance < Least_Mag_Squared || Least_Mag_Squared < 0) {
+                    Least_Mag_Squared = Distance;
+                    Move_X = Food_Rel_X;
+                    Move_Y = Food_Rel_Y;
+                }
 
-            if (in_view_cone(Ant_Address, Food_Item, &Food_Angle, Type_Food)) {
-                Average_Angle = (Average_Angle * Amount_Food + (Food_Angle))/(Amount_Food+1); 
-                Amount_Food++;
             }
             if (Food_Item->next != NULL) {
                 Food_Item = (Food_Item->next); // Follow the trail
@@ -472,50 +528,30 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
             }
         }
 
-        if (Amount_Food != 0) {
-            move_direction(Ant_Address, Average_Angle);
+        if (Least_Mag_Squared > 0) {
+            move_xy(Ant_Address, Move_X, Move_Y); 
             return 1;
         }
+
+
+
 
         //Can't see any food so we will check the trails
         if (Foragings_List == NULL) {
             move_randomly(Ant_Address);
             return 1;
         }
-        struct trail_struct Foraging_Particle = *Foragings_List;
-        int Amount_Foraging = 0;
-        Average_Angle = 0;
-        Looping = 1;
-        while(Looping) {
 
-            double Foraging_Angle = 0;  
+        //logic from food
 
-            if (in_view_cone(Ant_Address, &Foraging_Particle, &Foraging_Angle, Type_Trail)) {
-                Average_Angle = (Average_Angle * Amount_Foraging + (Foraging_Angle))/(Amount_Foraging+1);
-                Amount_Foraging++;           
-            }
-            if (Foraging_Particle.next != NULL) {
-                Foraging_Particle = *Foraging_Particle.next; //Follow the trail
-            }
-            else {
-                Looping = 0; //Terminate the loop
-            }
-        }
 
-        if(Amount_Foraging != 0) {
-            move_direction(Ant_Address, Average_Angle);
-            return 1;
-        }
 
-        else {
-            move_randomly(Ant_Address); 
-            return 1;
-        }
+
     }
-    
+
     if ((*Ant_Address).state == Ant_Homing) {
         //Check if you can see a colony
-        struct colony_struct Colony = *Colonys_List;
+        struct colony_struct* Colony = Colonys_List;
         double Homing_Angle;
         double Move_Angle;
         double Max_Squared_Distance = -1;
@@ -523,75 +559,27 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List, s
         int Found = 0;
         while(Looping) {
 
-            if(in_interact_range(Ant_Address, &Colony, Type_Colony)) {
-                
+            if(in_interact_range(Ant_Address, Colony, Type_Colony)) {
+
                 delete_object(Ant_Address->carrying, Type_Food);
                 Ant_Address->carrying = NULL; 
                 Ant_Address->state = Ant_Foraging; 
 
                 return 1;
             }
-            if(in_view_cone(Ant_Address, &Colony, &Homing_Angle, Type_Colony)) {
-                double squared_distance = pow(Colony.xpos - Ant_Address->xpos,2) + pow(Colony.ypos - Ant_Address->ypos, 2);
-                if(squared_distance < Max_Squared_Distance || Max_Squared_Distance == -1) { 
-                    Move_Angle = Homing_Angle;
-                    Max_Squared_Distance = squared_distance;
-                    Found = 1;
-                }
 
-                if (Colony.next != NULL) {
-                    Colony = *Colony.next;
-                }
-                else {
-                    Looping = 0;
-                }
+            //look for colonies
+
+            if(Colony->next == NULL){
+                Looping = 0;
+            }
+            else {
+                Colony = Colony->next;
             }
 
-            if(Found) {
-                move_direction(Ant_Address, Move_Angle);
-                return 1;
-            }
-
-            //otherwise look for trails
-            
-            if (Homings_List == NULL) {
-                move_randomly(Ant_Address);
-                return 1;
-            }
-
-            struct trail_struct Homing_Particle = *Homings_List;
-            double Amount_Homing = 0;
-            double Average_Angle = 0;     
-            Looping = 1;
-            while(Looping) {
-
-                double Homing_Angle = 0;  
-
-                if (in_view_cone(Ant_Address, &Homing_Particle, &Homing_Angle, Type_Trail)) {
-                    Average_Angle = (Average_Angle * Amount_Homing + (Homing_Angle))/(Amount_Homing+1);
-                    Amount_Homing++;           
-                }
-
-                if (Homing_Particle.next != NULL) {
-                    Homing_Particle = *Homing_Particle.next; //Follow the trail
-                }
-                else {
-                    Looping = 0; //Termiates the loop
-                }
-            }
-
-            if(Amount_Homing != 0) {
-                move_direction(Ant_Address, Average_Angle);
-                return 1;
-            }
-            else{
-                move_randomly(Ant_Address); 
-                return 1;
-            }
         }
-        return 0;
-    }
 
+    }
     return -1;
 }
 
