@@ -8,40 +8,40 @@
 #include <time.h>
 #include <SFML/Graphics.hpp>
 
-
-
 //constants
 #define M_PI 3.14159265358979323846  /* pi */
 
 //Simulation Parameters
-#define Number_Ants 200
+#define Number_Ants 150
 #define Canvas_X 1280
 #define Canvas_Y 720
-#define Number_Foods 50
+#define Number_Clusters 5
+#define Number_Foods 10
 
 //field/trail/horomone behaviour
 #define Trail_Increment 1.0 //raw amount that gets added by each ant
 #define Trail_Decay 0.9999   //percent left per tick
 #define Trail_Diffuse 0.1 //percent after decay that spreads to the adjacenet nodes
 #define Trail_Cutoff 0.2
+#define Trail_Aging 1.0 
 
 //Ant States
 #define Ant_Foraging 0
 #define Ant_Homing 1
 
 //Ant Parameters
-#define Ant_View_Range 20
-#define Ant_Sense_Range 0
+#define Ant_View_Range 40
+#define Ant_Sense_Range 30
 #define Ant_View_Angle 0.4 //Radians
-#define Ant_Interact_Range 5                           
-#define Ant_Movement_Range 1
-
+#define Ant_Interact_Range 8                           
+#define Ant_Movement_Range 3
 
 //logic
 #define Type_Food 0
 #define Type_Colony 1
 #define Type_Foraging 2
 #define Type_Homing 3
+
 //ObjectStructs:
 struct food_struct {
     struct food_struct* next;
@@ -74,6 +74,12 @@ struct setup_struct{
 };
 
 //MathHelpers:
+double logisticCurve(double value) {
+
+    return 1.0 / (1+ exp(-value));
+
+}
+
 double isValueInRange(double value, double xbound1, double xbound2) {
     // Check if xbound1 and xbound2 are in numerical order
     if (xbound1 < xbound2) {
@@ -96,6 +102,31 @@ double randfrom(double min, double max)
     double range = (max - min); 
     double div = RAND_MAX / range;
     return min + (rand() / div);
+}
+
+int is_point_in_triangle(int x, int y, int p1x, int p1y, int p2x, int p2y, int p3x, int p3y) {
+
+    int v0x = p3x - p1x;
+    int v0y = p3y - p1y;
+    int v1x = p2x - p1x;
+    int v1y = p2y - p1y;
+    int v2x = x - p1x;
+    int v2y = y - p1y;
+
+    int dot00 = v0x * v0x + v0y * v0y;
+    int dot01 = v0x * v1x + v0y * v1y;
+    int dot02 = v0x * v2x + v0y * v2y;
+    int dot11 = v1x * v1x + v1y * v1y;
+    int dot12 = v1x * v2x + v1y * v2y;
+
+    if (dot00 * dot11 - dot01*dot01 == 0) {
+        return 0;
+    }
+    int inv_denom = 1 / (dot00 * dot11 - dot01 * dot01);
+    int u = (dot11 * dot02 - dot01 * dot12) * inv_denom;
+    int v = (dot00 * dot12 - dot01 * dot02) * inv_denom;
+
+    return (u >= 0 && v >= 0 && u + v <= 1);
 }
 
 //DataInits:
@@ -280,8 +311,26 @@ int in_view_cone(struct ant_struct* Ant_Address, void* Object, double* Target_X,
     return -1; //throw an error
 }
 
-//TODO: Prevent movement outside of the boundaries
-//
+void enforce_boundary(struct ant_struct* Ant) {
+
+    if (Ant->xpos > Canvas_X - 2*Ant_View_Range) {
+        Ant->xpos = Canvas_X - 2*Ant_View_Range;
+        Ant->angle = randfrom(0, 2*M_PI);
+    }
+    if (Ant->ypos > Canvas_Y - 2*Ant_View_Range) {
+        Ant->ypos = Canvas_Y - 2*Ant_View_Range;
+        Ant->angle = randfrom(0, 2*M_PI);
+    }
+    if (Ant->xpos < 2*Ant_View_Range) {
+        Ant->xpos = 2*Ant_View_Range;
+        Ant->angle = randfrom(0, 2*M_PI);
+    }
+    if (Ant->ypos < 2*Ant_View_Range) {
+        Ant->ypos = 2*Ant_View_Range;
+        Ant->angle = randfrom(0, 2*M_PI);
+    }
+}
+
 void move_xy(struct ant_struct* Ant, double xRel, double yRel) {
 
     double Length_Squared = pow(xRel, 2) + pow(yRel, 2);
@@ -289,6 +338,8 @@ void move_xy(struct ant_struct* Ant, double xRel, double yRel) {
     Ant->xpos += xRel*Correction_Factor;
     Ant->ypos += yRel*Correction_Factor;
     Ant->angle = atan2(yRel, xRel);
+    enforce_boundary(Ant); 
+
 }
 
 
@@ -296,6 +347,8 @@ void move_direction(struct ant_struct* Ant, double Move_Angle) {
     Ant->angle = Move_Angle;
     Ant->xpos = Ant->xpos +  (double)Ant_Movement_Range*cos(Move_Angle);
     Ant->ypos = Ant->ypos + (double)Ant_Movement_Range*sin(Move_Angle);
+    enforce_boundary(Ant); 
+
 }
 
 void move_randomly(struct ant_struct* Ant) {
@@ -331,9 +384,6 @@ int render_ant(struct ant_struct* Ant, sf::RenderWindow* window) {
 
     convex.setPoint(1, sf::Vector2f(Ant->xpos + Ant_View_Range * cos(angle1), Ant->ypos + Ant_View_Range * sin(angle1)));
     convex.setPoint(2, sf::Vector2f(Ant->xpos + Ant_View_Range * cos(angle2), Ant->ypos + Ant_View_Range * sin(angle2)));
-
-
-
     convex.setFillColor(sf::Color(255, 0, 0));
     window->draw(convex);
 
@@ -383,71 +433,95 @@ int render_colony(struct colony_struct* Colony, sf::RenderWindow* window) {
     return 0;
 }
 
-int renderAndupdate_field(double* field, int type, sf::RenderWindow* window) {
-
+int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int type, sf::RenderWindow* window) {
     for (int Row = 0; Row < Canvas_X; Row++ ) {
         for(int Column = 0; Column < Canvas_Y; Column++) {
-    
-
-
-
-
-            double* intensity = (field + Canvas_X*Row+ Column);
-            *intensity *= Trail_Decay;
-
+            double* Intensity = (Field_Intensity + Canvas_X*Row + Column);
+            *Intensity *= Trail_Decay;
             //diffusion
-
-            if (*intensity > Trail_Cutoff) {
+            double* Maturity  = (Field_Maturity + Canvas_X*Row + Column);
+            if (*Intensity > Trail_Cutoff) {
+                *Maturity += Trail_Aging; 
                 sf::RectangleShape rectangle(sf::Vector2f(1.0, 1.0));
                 rectangle.setPosition(Row, Column);
-
                 if (type == Type_Foraging) {
-                    rectangle.setFillColor(sf::Color(0, 255, 0, 128));
+                    rectangle.setFillColor(sf::Color(0, 255, 0, 128 * logisticCurve(*(Field_Maturity + Canvas_X*Row + Column)) ));
                 } 
                 if (type == Type_Homing) {
-                    rectangle.setFillColor(sf::Color(0, 0, 255, 128));
-                }
+                    rectangle.setFillColor(sf::Color(0, 0, 255, 128 * logisticCurve(*(Field_Maturity + Canvas_X*Row + Column)) ));
+                } 
 
                 window->draw(rectangle);
             }
         }
     }
-    
     return 1;
 }
 
-double scan_field(struct ant_struct* Ant, double* field) {
+
+
+
+
+void scan_field(struct ant_struct* Ant, double* Field, double* Angle, double* Weight) {
     //return the angle of the most hormone concentration
-    double Angle = 0;   
-    double Weight = 0;
+    //Check a rectange around
+    double max_intensity = 5.0; 
     for (int Row = -Ant_Sense_Range; Row <= Ant_Sense_Range; Row++) {
         for (int Col = -Ant_Sense_Range; Col <= Ant_Sense_Range; Col++) {
-            double intensity = *(field + Canvas_X*Row+ Col);
-            Angle += (intensity)*atan2((double)Col, (double)Row)/ Weight;
-            Weight += intensity;
+            if(Canvas_X*Row + Col > 0 && Canvas_X*Row + Col < Canvas_X*Canvas_Y) {
+                double* intensity = (Field + Canvas_X*((int)Ant->xpos + Row)+ (int)Ant->ypos + Col);
+                if (*intensity > max_intensity) {
+                    *Angle = atan2((double)Col, (double)Row);
+                    *Weight = 2.0;
+                }
+            }
         } 
-    }   
+    }  
+    //Check the cone
+    /*
+       int p1x = Ant->xpos;
+       int p1y = Ant->ypos;
+       int p2x = Ant->xpos + Ant_View_Range*cos(Ant->angle + Ant_View_Angle);
+       int p2y = Ant->ypos + Ant_View_Range*sin(Ant->angle + Ant_View_Angle);
+       int p3x = Ant->xpos + Ant_View_Range*cos(Ant->angle - Ant_View_Angle);
+       int p3y = Ant->ypos + Ant_View_Range*sin(Ant->angle - Ant_View_Angle);
 
+       int min_x = p1x;
+       int max_x = p1x;
+       int min_y = p1y;
+       int max_y = p1y;
 
+       if (p2x < min_x) min_x = p2x;
+       if (p2x > max_x) max_x = p2x;
+       if (p2y < min_y) min_y = p2y;
+       if (p2y > max_y) max_y = p2y;
+       if (p3x < min_x) min_x = p3x;
+       if (p3x > max_x) max_x = p3x;
+       if (p3y < min_y) min_y = p3y;
+       if (p3y > max_y) max_y = p3y;
 
+    // Iterate over all points inside the bounding box
+    for (int Row = min_x; Row <= max_x; Row++) {
+    for (int Col = min_y; Col <= max_y; Col++) {
+    if (is_point_in_triangle(Row, Col, p1x, p1y, p2x, p2y, p3x, p3y)) {
+    double intensity = *(field + Canvas_X*Row+ Col);
+     *Angle += (intensity)*atan2((double)Col, (double)Row)/ *Weight;
+     *Weight += intensity;
 
+     }
+     }
+     }
+     */
 }
 
 
 
-int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  double* Foraging_Field, double* Homing_Field, struct colony_struct* Colonys_List) {
+int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  double* Foraging_Field_Intensity, double* Foraging_Field_Maturity, double* Homing_Field_Intensity, double* Homing_Field_Maturity, struct colony_struct* Colonys_List) {
+    //TODO: only drop trails upon recent discovery
 
-    //Ant needs to be dropping trails depending on its state
-    //
-    //
-    
-    
-    
     if ((*Ant_Address).state == Ant_Foraging) {
 
-
-        *(Foraging_Field + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
-
+        *(Homing_Field_Intensity + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
 
         //check if food is left in the level
         if (Foods_List == NULL) {
@@ -491,12 +565,12 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
             return 1;
         }
         
-
-
-        //determine which direction has the highest hormone strenght
-        //TODO: Hormone pathfinding
-        //could not find them so
-
+        double Angle = 0;
+        double Weight = 1;
+        scan_field(Ant_Address, Foraging_Field_Maturity, &Angle, &Weight);
+        if (Weight > 1) {
+            Ant_Address->angle = Angle; 
+        }
         move_randomly(Ant_Address);
         return 1;
 
@@ -505,7 +579,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
     if ((*Ant_Address).state == Ant_Homing) {
 
         
-        *(Homing_Field + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
+        *(Foraging_Field_Intensity + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
         //Check if you can see a colony
         struct colony_struct* Colony = Colonys_List;
         double Homing_Angle;
@@ -545,13 +619,12 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
         }
 
         //could not find any colonies so now look for trails
-
-        
-        //move the direction with the highest strenght
-
-
-
-        //Could not see anything so
+        double Angle = 0;
+        double Weight = 1;
+        scan_field(Ant_Address, Homing_Field_Maturity, &Angle, &Weight);
+        if (Weight > 1) {
+            Ant_Address->angle = Angle; 
+        }
         move_randomly(Ant_Address);
         return 1;
 
@@ -560,36 +633,42 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
 }
 
 struct setup_struct* setup() {
+
     struct setup_struct* Setup_Data = (struct setup_struct*)malloc(sizeof(struct setup_struct));
+
     Setup_Data->ants_list = NULL;
     for (int i = 0 ; i < Number_Ants; i++) {
         init_ant(&(Setup_Data->ants_list), Canvas_X/2, Canvas_Y/2);
     }
+
     Setup_Data->colonys_list = NULL;
     struct colony_struct* Colony = init_colony(&(Setup_Data->colonys_list), Canvas_X/2, Canvas_Y/2, Canvas_X*Canvas_Y/60000);
+
     Setup_Data->foods_list = NULL;
-    double Cluster_X = randfrom(0, Canvas_X);
-    double Cluster_Y = randfrom(0, Canvas_Y);
-    for (int i = 0 ; i < Number_Foods; i++) {
-        struct food_struct* Food = init_food(&(Setup_Data->foods_list), Cluster_X + randfrom(-5,5), Cluster_Y + randfrom(-5, 5));
+    for (int i = 0; i<Number_Foods; i++) {
+        double Cluster_X = randfrom(3*Ant_View_Range, Canvas_X - 3*Ant_View_Range);
+        double Cluster_Y = randfrom(3*Ant_View_Range, Canvas_Y - 3*Ant_View_Range);
+        for (int i = 0 ; i < Number_Foods; i++) {
+            struct food_struct* Food = init_food(&(Setup_Data->foods_list), Cluster_X + randfrom(-5,5), Cluster_Y + randfrom(-5, 5));
+        }
+
     }
     return Setup_Data;
 }
 
-void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Foraging_Field, double* Homing_Field, struct food_struct** Foods_List, struct colony_struct** Colonys_List) {
+void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Foraging_Field_Intensity, double* Foraging_Field_Maturity, double* Homing_Field_Intensity, double* Homing_Field_Maturity, struct food_struct** Foods_List, struct colony_struct** Colonys_List) {
 
-    
     // Set of Walls in the Level (Investigate what datatype to use)
     
     //ants
     struct ant_struct* Ant_Address = *Ants_List;
     while (Ant_Address->next != NULL) {
-        ant_update(Ant_Address, *Foods_List, Foraging_Field, Homing_Field, *Colonys_List);
+        ant_update(Ant_Address, *Foods_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, *Colonys_List);
         render_ant(Ant_Address, window);
         //draw the ant
         Ant_Address = Ant_Address->next;
     }
-    ant_update(Ant_Address, *Foods_List, Foraging_Field, Homing_Field, *Colonys_List);
+    ant_update(Ant_Address, *Foods_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, *Colonys_List);
     render_ant(Ant_Address, window);
 
     //foods
@@ -599,7 +678,8 @@ void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Forag
         Food_Address = Food_Address->next;
     }
     render_food(Food_Address, window);
- 
+    
+    //colonies
     struct colony_struct* Colony_Address = *Colonys_List;
     while (Colony_Address->next != NULL) {
         render_colony(Colony_Address, window);
@@ -608,12 +688,10 @@ void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Forag
 
 
     render_colony(Colony_Address, window);
-    renderAndupdate_field(Foraging_Field, Type_Foraging, window);
-    renderAndupdate_field(Homing_Field, Type_Homing, window);
-
-
-
-    //Command to save the state
+    
+    //trail fields
+    renderAndupdate_field(Foraging_Field_Intensity, Foraging_Field_Maturity, Type_Foraging, window);
+    renderAndupdate_field(Homing_Field_Intensity, Homing_Field_Maturity, Type_Homing, window);
 
 }
 
@@ -629,16 +707,16 @@ int main() {
     window.setActive(true);
     window.setFramerateLimit(60); //could have somethign like microstepping in this
 
-
     //Elaborate setupdata
     struct ant_struct* Ants_List = (*Setup_Data).ants_list;
     struct food_struct* Foods_List = (*Setup_Data).foods_list;
     struct colony_struct* Colonys_List = (*Setup_Data).colonys_list;
 
-
-    double* Foraging_Field  = (double*)malloc(Canvas_X * Canvas_X * sizeof(double));
-    double* Homing_Field = (double*)malloc(Canvas_X * Canvas_X * sizeof(double));
-
+    double* Foraging_Field_Intensity  = (double*)malloc(Canvas_X * Canvas_X * sizeof(double));
+    double* Homing_Field_Intensity = (double*)malloc(Canvas_X * Canvas_X * sizeof(double));
+    double* Foraging_Field_Maturity  = (double*)malloc(Canvas_X * Canvas_X * sizeof(double));
+    double* Homing_Field_Maturity = (double*)malloc(Canvas_X * Canvas_X * sizeof(double));
+    
     int i = 0;
     while (window.isOpen())
     {
@@ -650,6 +728,7 @@ int main() {
             case sf::Event::Closed:
                 window.close();
                 //run the exit routine otherwise
+
                 break;
             default:
                 break;
@@ -659,15 +738,9 @@ int main() {
         // clear the window with black color
         window.clear(sf::Color::Black);
         //printf("Looping %d\n", i);
-        //loop function should deal with window 
-        loop(&window, &Ants_List, Foraging_Field, Homing_Field, &Foods_List, &Colonys_List);
+        loop(&window, &Ants_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, &Foods_List, &Colonys_List);
         i++; 
-             
-        // end the current frame
         window.display();
-
-
-
     }
     return 0;
 }
