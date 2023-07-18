@@ -15,12 +15,12 @@
 #define Number_Ants 100
 #define Canvas_X 1280
 #define Canvas_Y 720
-#define Number_Clusters 1
-#define Number_Foods 100
+#define Number_Clusters 5
+#define Number_Foods 25
 
 //field/trail/horomone behaviour
 #define Trail_Increment 1.0 //raw amount that gets added by each ant
-#define Trail_Decay 0.999  //percent left per tick
+#define Trail_Decay 0.995  //percent left per tick
 #define Trail_Diffuse 0.1 //percent after decay that spreads to the adjacenet nodes
 #define Trail_Cutoff 0.2
 #define Trail_Aging 1.0
@@ -32,7 +32,7 @@
 
 //Ant Parameters
 #define Ant_View_Range 40
-#define Ant_Sense_Range 30
+#define Ant_Sense_Range 10 //this has a huge performance hit
 #define Ant_View_Angle 0.4 //Radians
 #define Ant_Interact_Range 8                           
 #define Ant_Movement_Range 3
@@ -43,7 +43,14 @@
 #define Type_Foraging 2
 #define Type_Homing 3
 
+//Rendering
+#define Rendering_View_Cone 1
+#define Rendering_Foraging_Trail 1
+#define Rendering_Homing_Trail 1
+
 //ObjectStructs:
+//
+//TODO: food list should be shorted into a 2d linked list of food objects that is sorted by x and y position
 struct food_struct {
     struct food_struct* next;
     struct food_struct* last;
@@ -265,6 +272,7 @@ int in_interact_range(struct ant_struct* Ant_Address, void* Object, int type) {
 }
 
 int pickup_food(struct ant_struct* Ant, struct food_struct* Food) {
+    //TODO: place the ant into the no food state when there is not food left
     Ant->state = Ant_Homing;
     Ant->carrying = Food; 
     Food->carrying = Ant;
@@ -362,32 +370,38 @@ void delete_object(void* Object, int type){
     //this causes a segfault
     if(type == Type_Food) {
         struct food_struct* Food = (struct food_struct*)Object;
-        (Food->next)->last = Food->last;
-        (Food->last)->next = Food->next; //This causes a seg fault someitms
+        if (Food->next != NULL) {
+            (Food->next)->last = Food->last;
+        }
+        if (Food->last != NULL) {
+            (Food->last)->next = Food->next;
+        }
         free(Food);
     }
 }
 
 int render_ant(struct ant_struct* Ant, sf::RenderWindow* window) {
 
-    //Render the View Cone
-    sf::ConvexShape convex;
-    convex.setPointCount(3);
-    //must render all clockwise/ccw
-    convex.setPoint(0, sf::Vector2f(Ant->xpos, Ant->ypos));
 
-    float angle1 = Ant->angle - Ant_View_Angle;
-    float angle2 = Ant->angle + Ant_View_Angle;
+    if(Rendering_View_Cone) {
+        //Render the View Cone
+        sf::ConvexShape convex;
+        convex.setPointCount(3);
+        //must render all clockwise/ccw
+        convex.setPoint(0, sf::Vector2f(Ant->xpos, Ant->ypos));
 
-    if (angle1 > angle2) {
-        std::swap(angle1, angle2);
+        float angle1 = Ant->angle - Ant_View_Angle;
+        float angle2 = Ant->angle + Ant_View_Angle;
+
+        if (angle1 > angle2) {
+            std::swap(angle1, angle2);
+        }
+
+        convex.setPoint(1, sf::Vector2f(Ant->xpos + Ant_View_Range * cos(angle1), Ant->ypos + Ant_View_Range * sin(angle1)));
+        convex.setPoint(2, sf::Vector2f(Ant->xpos + Ant_View_Range * cos(angle2), Ant->ypos + Ant_View_Range * sin(angle2)));
+        convex.setFillColor(sf::Color(255, 0, 0, 128));
+        window->draw(convex);
     }
-
-    convex.setPoint(1, sf::Vector2f(Ant->xpos + Ant_View_Range * cos(angle1), Ant->ypos + Ant_View_Range * sin(angle1)));
-    convex.setPoint(2, sf::Vector2f(Ant->xpos + Ant_View_Range * cos(angle2), Ant->ypos + Ant_View_Range * sin(angle2)));
-    convex.setFillColor(sf::Color(255, 0, 0));
-    window->draw(convex);
-
     if (Ant->state == Ant_Foraging) {
         sf::CircleShape shape(3);
         shape.setOrigin(1.5, 1.5);
@@ -443,16 +457,19 @@ int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int 
             double* Maturity  = (Field_Maturity + Canvas_X*Row + Column);
             if (*Intensity > Trail_Cutoff) {
                 *Maturity += Trail_Aging; 
-                sf::RectangleShape rectangle(sf::Vector2f(1.0, 1.0));
-                rectangle.setPosition(Row, Column);
-                if (type == Type_Foraging) {
+                if (type == Type_Foraging && Rendering_Foraging_Trail) {
+                    sf::RectangleShape rectangle(sf::Vector2f(1.0, 1.0));
+                    rectangle.setPosition(Row, Column);
                     rectangle.setFillColor(sf::Color(0, 255, 0, 128 * logisticCurve(*(Field_Maturity + Canvas_X*Row + Column)) ));
+                    window->draw(rectangle);
                 } 
-                if (type == Type_Homing) {
+                if (type == Type_Homing && Rendering_Homing_Trail) {
+                    sf::RectangleShape rectangle(sf::Vector2f(1.0, 1.0));
+                    rectangle.setPosition(Row, Column);
                     rectangle.setFillColor(sf::Color(0, 0, 255, 128 * logisticCurve(*(Field_Maturity + Canvas_X*Row + Column)) ));
+                    window->draw(rectangle);
                 } 
 
-                window->draw(rectangle);
             }
             else {
             *Maturity = *Intensity;
@@ -487,7 +504,8 @@ void scan_field(struct ant_struct* Ant, double* Field, double* Angle, double* We
                 }
             }
         } 
-    }  
+    }
+    //TODO: the cone is the only valid way to do this otherwise the ants get ancoroed to local maxmimu
     //Check the cone
     /*
        int p1x = Ant->xpos;
