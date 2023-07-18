@@ -23,6 +23,7 @@
 #define Trail_Increment 1.0 //raw amount that gets added by each ant
 #define Trail_Decay 0.9999   //percent left per tick
 #define Trail_Diffuse 0.1 //percent after decay that spreads to the adjacenet nodes
+#define Trail_Cutoff 0.2
 
 //Ant States
 #define Ant_Foraging 0
@@ -396,7 +397,7 @@ int renderAndupdate_field(double* field, int type, sf::RenderWindow* window) {
 
             //diffusion
 
-            if (*intensity > 0.2) {
+            if (*intensity > Trail_Cutoff) {
                 sf::RectangleShape rectangle(sf::Vector2f(1.0, 1.0));
                 rectangle.setPosition(Row, Column);
 
@@ -415,7 +416,22 @@ int renderAndupdate_field(double* field, int type, sf::RenderWindow* window) {
     return 1;
 }
 
+double scan_field(struct ant_struct* Ant, double* field) {
+    //return the angle of the most hormone concentration
+    double Angle = 0;   
+    double Weight = 0;
+    for (int Row = -Ant_Sense_Range; Row <= Ant_Sense_Range; Row++) {
+        for (int Col = -Ant_Sense_Range; Col <= Ant_Sense_Range; Col++) {
+            double intensity = *(field + Canvas_X*Row+ Col);
+            Angle += (intensity)*atan2((double)Col, (double)Row)/ Weight;
+            Weight += intensity;
+        } 
+    }   
 
+
+
+
+}
 
 
 
