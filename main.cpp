@@ -12,18 +12,19 @@
 #define M_PI 3.14159265358979323846  /* pi */
 
 //Simulation Parameters
-#define Number_Ants 150
+#define Number_Ants 100
 #define Canvas_X 1280
 #define Canvas_Y 720
-#define Number_Clusters 5
-#define Number_Foods 10
+#define Number_Clusters 1
+#define Number_Foods 100
 
 //field/trail/horomone behaviour
 #define Trail_Increment 1.0 //raw amount that gets added by each ant
-#define Trail_Decay 0.9999   //percent left per tick
+#define Trail_Decay 0.999  //percent left per tick
 #define Trail_Diffuse 0.1 //percent after decay that spreads to the adjacenet nodes
 #define Trail_Cutoff 0.2
-#define Trail_Aging 1.0 
+#define Trail_Aging 1.0
+#define Trail_Maturity 5.0
 
 //Ant States
 #define Ant_Foraging 0
@@ -362,7 +363,7 @@ void delete_object(void* Object, int type){
     if(type == Type_Food) {
         struct food_struct* Food = (struct food_struct*)Object;
         (Food->next)->last = Food->last;
-        (Food->last)->next = Food->next;
+        (Food->last)->next = Food->next; //This causes a seg fault someitms
         free(Food);
     }
 }
@@ -426,7 +427,7 @@ int render_food(struct food_struct* Food, sf::RenderWindow* window) {
 
 int render_colony(struct colony_struct* Colony, sf::RenderWindow* window) {
     sf::CircleShape shape(Colony->radius);
-    shape.setOrigin(Colony->radius/2, Colony->radius/2); 
+    shape.setOrigin(Colony->radius, Colony->radius); 
     shape.setFillColor(sf::Color(255, 0, 0));
     shape.setPosition(Colony->xpos, Colony->ypos);
     window->draw(shape);
@@ -453,6 +454,9 @@ int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int 
 
                 window->draw(rectangle);
             }
+            else {
+            *Maturity = *Intensity;
+            }
         }
     }
     return 1;
@@ -465,14 +469,21 @@ int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int 
 void scan_field(struct ant_struct* Ant, double* Field, double* Angle, double* Weight) {
     //return the angle of the most hormone concentration
     //Check a rectange around
-    double max_intensity = 5.0; 
+    double max_intensity = Trail_Maturity; 
     for (int Row = -Ant_Sense_Range; Row <= Ant_Sense_Range; Row++) {
         for (int Col = -Ant_Sense_Range; Col <= Ant_Sense_Range; Col++) {
-            if(Canvas_X*Row + Col > 0 && Canvas_X*Row + Col < Canvas_X*Canvas_Y) {
-                double* intensity = (Field + Canvas_X*((int)Ant->xpos + Row)+ (int)Ant->ypos + Col);
-                if (*intensity > max_intensity) {
-                    *Angle = atan2((double)Col, (double)Row);
-                    *Weight = 2.0;
+            int Index = Canvas_X*((int)Ant->xpos + Row)+ (int)Ant->ypos + Col;
+            if(Index > 0 && Index < Canvas_X*Canvas_Y) {
+                double DeltaX = (double)Row - Ant->xpos;
+                double DeltaY = (double)Row - Ant->ypos;
+                double MagnitudeSquared = pow(DeltaX, 2) + pow(DeltaY, 2);
+                if(MagnitudeSquared > 1.0) {
+                    double* intensity = (Field + Index);
+                    if (*intensity > max_intensity) {
+                        *Angle = atan2((double)Col, (double)Row);
+                        *Weight = 2.0;
+                        max_intensity = *intensity;
+                    }
                 }
             }
         } 
@@ -645,7 +656,7 @@ struct setup_struct* setup() {
     struct colony_struct* Colony = init_colony(&(Setup_Data->colonys_list), Canvas_X/2, Canvas_Y/2, Canvas_X*Canvas_Y/60000);
 
     Setup_Data->foods_list = NULL;
-    for (int i = 0; i<Number_Foods; i++) {
+    for (int i = 0; i<Number_Clusters; i++) {
         double Cluster_X = randfrom(3*Ant_View_Range, Canvas_X - 3*Ant_View_Range);
         double Cluster_Y = randfrom(3*Ant_View_Range, Canvas_Y - 3*Ant_View_Range);
         for (int i = 0 ; i < Number_Foods; i++) {
