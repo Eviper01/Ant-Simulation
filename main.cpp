@@ -13,10 +13,10 @@
 
 //Simulation Parameters
 #define Number_Ants 50
-#define Canvas_X 1280
-#define Canvas_Y 720
-#define Number_Clusters 5
-#define Number_Foods 25
+#define Canvas_X 800
+#define Canvas_Y 600
+#define Number_Clusters 1
+#define Number_Foods 20
 
 //field/trail/horomone behaviour
 #define Trail_Increment 1.0 //raw amount that gets added by each ant
@@ -33,7 +33,8 @@
 //Ant Parameters
 #define Ant_View_Range 40
 #define Ant_Sense_Range 40 //this has a huge performance hit
-#define Ant_View_Angle 0.4 //Radians
+#define Ant_Move_Variance 0.3 //angle in radians
+#define Ant_View_Angle 1.0 //Radians
 #define Ant_Interact_Range 8                           
 #define Ant_Movement_Range 3
 
@@ -139,8 +140,8 @@ int is_point_in_triangle(int x, int y, int p1x, int p1y, int p2x, int p2y, int p
 }
 
 //DataInits:
+
 struct food_struct* init_food(struct food_struct** Foods_List, double xpos, double ypos) {
-    
     if(*Foods_List == NULL) {
         *Foods_List = (struct food_struct*)malloc(sizeof(struct food_struct)); 
         (*Foods_List)->next = NULL;
@@ -162,7 +163,6 @@ struct food_struct* init_food(struct food_struct** Foods_List, double xpos, doub
     (*(*Food_Address).next).carrying = NULL;
     (*(*Food_Address).next).last = Food_Address;
     return (*Food_Address).next;
-
 
 }
 
@@ -363,18 +363,23 @@ void move_direction(struct ant_struct* Ant, double Move_Angle) {
 
 void move_randomly(struct ant_struct* Ant) {
    
-    double Move_Angle = randfrom(-Ant_View_Angle, Ant_View_Angle);
+    double Move_Angle = randfrom(-Ant_Move_Variance, Ant_Move_Variance);
     move_direction(Ant, Ant->angle + Move_Angle);
 }
 
-void delete_object(void* Object, int type){
+void delete_object(void* Object, void**List, int type){
     if(type == Type_Food) {
         struct food_struct* Food = (struct food_struct*)Object;
+         
+        //deleting zero breaks the system
         if (Food->next != NULL) {
             (Food->next)->last = Food->last;
         }
         if (Food->last != NULL) {
             (Food->last)->next = Food->next;
+        }
+        else {
+            *List = Food->next; //updating the head //causes a seg fault
         }
         free(Food);
     }
@@ -472,7 +477,7 @@ int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int 
 
             }
             else {
-            *Maturity = *Intensity;
+            *Maturity = 0;
             }
         }
     }
@@ -571,7 +576,7 @@ int scan_field(struct ant_struct* Ant, double* Field, double* Angle) {
 
 
 
-int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  double* Foraging_Field_Intensity, double* Foraging_Field_Maturity, double* Homing_Field_Intensity, double* Homing_Field_Maturity, struct colony_struct* Colonys_List) {
+int ant_update(struct ant_struct* Ant_Address, struct food_struct** Foods_List,  double* Foraging_Field_Intensity, double* Foraging_Field_Maturity, double* Homing_Field_Intensity, double* Homing_Field_Maturity, struct colony_struct* Colonys_List) {
     //TODO: only drop trails upon recent discovery
 
     if ((*Ant_Address).state == Ant_Foraging) {
@@ -579,19 +584,19 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
         *(Homing_Field_Intensity + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
 
         //check if food is left in the level
-        if (Foods_List == NULL) {
+        if (*Foods_List == NULL) {
             printf("No Food\n");
+            exit(0);
             return 0;
         } 
 
-        struct food_struct* Food_Item = Foods_List;
+        struct food_struct* Food_Item = *Foods_List;
         double Least_Mag_Squared = -1;
         double Move_X = 0;
         double Move_Y = 0;
         int Looping = 1;
-        //printf("Entering Loop at line 591 --");
         while(Looping) {
-
+            
             //check if we can pick up the food
             if (in_interact_range(Ant_Address, Food_Item, Type_Food) && Food_Item->carrying == NULL) {
                 pickup_food(Ant_Address, Food_Item);
@@ -614,14 +619,12 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
 
             }
             if (Food_Item->next != NULL) {
-                Food_Item = (Food_Item->next); // Follow the trail
+                Food_Item = (Food_Item->next); // Follow the trail 
             }
             else {
                 Looping = 0; //Terminate the loop 
             }
         }
-        //printf("Escaped\n");
-
         if (Least_Mag_Squared > 0) {
             move_xy(Ant_Address, Move_X, Move_Y); 
             return 1;
@@ -651,12 +654,11 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
         double Target_X;
         double Target_Y;
         double Distance;
-        //printf("Entering Loop at line 651 -- ");
         while(Looping) {
 
             if(in_interact_range(Ant_Address, Colony, Type_Colony)) {
 
-                delete_object(Ant_Address->carrying, Type_Food);
+                delete_object(Ant_Address->carrying, (void**)Foods_List, Type_Food);
                 Ant_Address->carrying = NULL; 
                 Ant_Address->state = Ant_Foraging;
                 double Angle = 0;
@@ -681,7 +683,6 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
             }
 
         }
-        //printf("Escaped\n");
 
         //could not find any colonies so now look for trails
         double Angle = 0;
@@ -725,12 +726,12 @@ void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Forag
     //ants
     struct ant_struct* Ant_Address = *Ants_List;
     while (Ant_Address->next != NULL) {
-        ant_update(Ant_Address, *Foods_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, *Colonys_List);
+        ant_update(Ant_Address, Foods_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, *Colonys_List);
         render_ant(Ant_Address, window);
         //draw the ant
         Ant_Address = Ant_Address->next;
     }
-    ant_update(Ant_Address, *Foods_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, *Colonys_List);
+    ant_update(Ant_Address, Foods_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, *Colonys_List);
     render_ant(Ant_Address, window);
 
     //foods
