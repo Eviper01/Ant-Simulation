@@ -12,7 +12,7 @@
 #define M_PI 3.14159265358979323846  /* pi */
 
 //Simulation Parameters
-#define Number_Ants 100
+#define Number_Ants 50
 #define Canvas_X 1280
 #define Canvas_Y 720
 #define Number_Clusters 5
@@ -32,7 +32,7 @@
 
 //Ant Parameters
 #define Ant_View_Range 40
-#define Ant_Sense_Range 10 //this has a huge performance hit
+#define Ant_Sense_Range 40 //this has a huge performance hit
 #define Ant_View_Angle 0.4 //Radians
 #define Ant_Interact_Range 8                           
 #define Ant_Movement_Range 3
@@ -44,7 +44,7 @@
 #define Type_Homing 3
 
 //Rendering
-#define Rendering_View_Cone 1
+#define Rendering_View_Cone 0
 #define Rendering_Foraging_Trail 1
 #define Rendering_Homing_Trail 1
 #define FrameRate 60
@@ -66,6 +66,7 @@ struct ant_struct{
     double angle;
     char state;
     struct food_struct* carrying;
+    double timer; //TODO: the amount of trail the ant drops should be inversely proportional to the amount of time it has been in the state (i.e if ants switch states quickly they have a found an optimal path).
 };
 
 struct colony_struct {
@@ -367,7 +368,6 @@ void move_randomly(struct ant_struct* Ant) {
 }
 
 void delete_object(void* Object, int type){
-    //this causes a segfault
     if(type == Type_Food) {
         struct food_struct* Food = (struct food_struct*)Object;
         if (Food->next != NULL) {
@@ -589,11 +589,17 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
         double Move_X = 0;
         double Move_Y = 0;
         int Looping = 1;
+        //printf("Entering Loop at line 591 --");
         while(Looping) {
 
             //check if we can pick up the food
             if (in_interact_range(Ant_Address, Food_Item, Type_Food) && Food_Item->carrying == NULL) {
                 pickup_food(Ant_Address, Food_Item);
+                double Angle = 0;
+                if (scan_field(Ant_Address, Homing_Field_Maturity, &Angle)) {
+                    Ant_Address->angle = Angle; 
+                }
+                move_randomly(Ant_Address);
                 return 1;
             }
             double Food_Rel_X = 0;
@@ -614,6 +620,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
                 Looping = 0; //Terminate the loop 
             }
         }
+        //printf("Escaped\n");
 
         if (Least_Mag_Squared > 0) {
             move_xy(Ant_Address, Move_X, Move_Y); 
@@ -644,15 +651,19 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
         double Target_X;
         double Target_Y;
         double Distance;
-
+        //printf("Entering Loop at line 651 -- ");
         while(Looping) {
 
             if(in_interact_range(Ant_Address, Colony, Type_Colony)) {
 
                 delete_object(Ant_Address->carrying, Type_Food);
                 Ant_Address->carrying = NULL; 
-                Ant_Address->state = Ant_Foraging; 
-
+                Ant_Address->state = Ant_Foraging;
+                double Angle = 0;
+                if (scan_field(Ant_Address, Foraging_Field_Maturity, &Angle)) {
+                    Ant_Address->angle = Angle; 
+                }
+                move_randomly(Ant_Address);
                 return 1;
             }
 
@@ -670,6 +681,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
             }
 
         }
+        //printf("Escaped\n");
 
         //could not find any colonies so now look for trails
         double Angle = 0;
