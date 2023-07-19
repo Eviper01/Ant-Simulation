@@ -47,7 +47,7 @@
 #define Rendering_View_Cone 1
 #define Rendering_Foraging_Trail 1
 #define Rendering_Homing_Trail 1
-
+#define FrameRate 60
 //ObjectStructs:
 //
 //TODO: food list should be shorted into a 2d linked list of food objects that is sorted by x and y position
@@ -479,68 +479,94 @@ int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int 
     return 1;
 }
 
+int view_field(struct ant_struct* Ant, double* Field, double* Angle) {
+
+    double Max_Intensity = Trail_Maturity;
+    int Detected = 0;
+    double x1 = Ant->xpos;
+    double y1 = Ant->ypos;
+    double x2 = x1 + Ant_View_Range * cos(Ant->angle + Ant_View_Angle); 
+    double y2 = y1 + Ant_View_Range * sin(Ant->angle + Ant_View_Angle); 
+    double x3 = x1 + Ant_View_Range * cos(Ant->angle - Ant_View_Angle); 
+    double y3 = y1 + Ant_View_Range * sin(Ant->angle - Ant_View_Angle);
+
+    //determine the rectangular bounding box of the triangle
+    double min_x = x1;
+    double max_x = x1;
+    if (x2 < x1) {
+        min_x = x2; 
+    }
+    else {
+        max_x = x2;
+    }
+    if (x3 < x1) {
+        min_x = x3;
+    }
+    if (x3 > x2) {
+        max_x = x3; 
+    }
+    double min_y = y1;
+    double max_y = y1;
+    if (y2 < y1) {
+        min_y = y1; 
+    }
+    else {
+        max_y = y2;
+    }
+    if (y3 < y1) {
+        min_y = y3; 
+    }
+    if(y3 > y1) {
+        max_y = y3;
+    }
+
+    //Loop through these coords
+    for (int Col = (int)min_x; Col < (int)max_x; Col++) {
+        for(int Row = (int)min_y;  Row < (int)max_y; Row++) {
+            if (is_point_in_triangle(Col, Row, (int)x1, (int)y1, (int)x2, (int)y2, (int)x3, (int)y3)) {
+                int Index = Canvas_X*Col + Row;
+                if (Index > 0 && Index < Canvas_X*Canvas_Y) {
+                    double Intensity = *(Field + Index);
+                    if (Intensity > Max_Intensity) {
+                        Max_Intensity = Intensity;
+                        double DeltaX = (double)Col - Ant->xpos;
+                        double DeltaY = (double)Row - Ant->ypos;
+                        *Angle = atan2(DeltaY, DeltaX);
+                        Detected = 1;
+                    }
+                }
+            }
+        }
+    }
+    return Detected;
+}
 
 
 
-
-void scan_field(struct ant_struct* Ant, double* Field, double* Angle, double* Weight) {
+int scan_field(struct ant_struct* Ant, double* Field, double* Angle) {
     //return the angle of the most hormone concentration
     //Check a rectange around
-    double max_intensity = Trail_Maturity; 
+    double max_intensity = Trail_Maturity;
+    int Detected = 0;
     for (int Row = -Ant_Sense_Range; Row <= Ant_Sense_Range; Row++) {
         for (int Col = -Ant_Sense_Range; Col <= Ant_Sense_Range; Col++) {
-            int Index = Canvas_X*((int)Ant->xpos + Row)+ (int)Ant->ypos + Col;
+            int Index = Canvas_X*((int)Ant->xpos + Col)+ (int)Ant->ypos + Row;
             if(Index > 0 && Index < Canvas_X*Canvas_Y) {
-                double DeltaX = (double)Row - Ant->xpos;
+                double DeltaX = (double)Col - Ant->xpos;
                 double DeltaY = (double)Row - Ant->ypos;
                 double MagnitudeSquared = pow(DeltaX, 2) + pow(DeltaY, 2);
                 if(MagnitudeSquared > 1.0) {
                     double* intensity = (Field + Index);
                     if (*intensity > max_intensity) {
-                        *Angle = atan2((double)Col, (double)Row);
-                        *Weight = 2.0;
+                        *Angle = atan2((double)Row, (double)Col);
+                        Detected = 1;
                         max_intensity = *intensity;
                     }
                 }
             }
         } 
     }
-    //TODO: the cone is the only valid way to do this otherwise the ants get ancoroed to local maxmimu
-    //Check the cone
-    /*
-       int p1x = Ant->xpos;
-       int p1y = Ant->ypos;
-       int p2x = Ant->xpos + Ant_View_Range*cos(Ant->angle + Ant_View_Angle);
-       int p2y = Ant->ypos + Ant_View_Range*sin(Ant->angle + Ant_View_Angle);
-       int p3x = Ant->xpos + Ant_View_Range*cos(Ant->angle - Ant_View_Angle);
-       int p3y = Ant->ypos + Ant_View_Range*sin(Ant->angle - Ant_View_Angle);
-
-       int min_x = p1x;
-       int max_x = p1x;
-       int min_y = p1y;
-       int max_y = p1y;
-
-       if (p2x < min_x) min_x = p2x;
-       if (p2x > max_x) max_x = p2x;
-       if (p2y < min_y) min_y = p2y;
-       if (p2y > max_y) max_y = p2y;
-       if (p3x < min_x) min_x = p3x;
-       if (p3x > max_x) max_x = p3x;
-       if (p3y < min_y) min_y = p3y;
-       if (p3y > max_y) max_y = p3y;
-
-    // Iterate over all points inside the bounding box
-    for (int Row = min_x; Row <= max_x; Row++) {
-    for (int Col = min_y; Col <= max_y; Col++) {
-    if (is_point_in_triangle(Row, Col, p1x, p1y, p2x, p2y, p3x, p3y)) {
-    double intensity = *(field + Canvas_X*Row+ Col);
-     *Angle += (intensity)*atan2((double)Col, (double)Row)/ *Weight;
-     *Weight += intensity;
-
-     }
-     }
-     }
-     */
+    return Detected;
 }
 
 
@@ -593,11 +619,9 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
             move_xy(Ant_Address, Move_X, Move_Y); 
             return 1;
         }
-        
+
         double Angle = 0;
-        double Weight = 1;
-        scan_field(Ant_Address, Foraging_Field_Maturity, &Angle, &Weight);
-        if (Weight > 1) {
+        if (view_field(Ant_Address, Foraging_Field_Maturity, &Angle)) {
             Ant_Address->angle = Angle; 
         }
         move_randomly(Ant_Address);
@@ -607,7 +631,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
 
     if ((*Ant_Address).state == Ant_Homing) {
 
-        
+
         *(Foraging_Field_Intensity + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
         //Check if you can see a colony
         struct colony_struct* Colony = Colonys_List;
@@ -631,13 +655,13 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
 
                 return 1;
             }
-            
+
             //then check if you can see some colonies
             if(in_view_cone(Ant_Address, Colony, &Target_X, &Target_Y, &Distance, Type_Colony)) {
                 move_xy(Ant_Address, Target_X, Target_Y); 
             }
 
-            
+
             if(Colony->next == NULL){
                 Looping = 0;
             }
@@ -649,14 +673,11 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct* Foods_List,  
 
         //could not find any colonies so now look for trails
         double Angle = 0;
-        double Weight = 1;
-        scan_field(Ant_Address, Homing_Field_Maturity, &Angle, &Weight);
-        if (Weight > 1) {
+        if (view_field(Ant_Address, Homing_Field_Maturity, &Angle)) {
             Ant_Address->angle = Angle; 
         }
         move_randomly(Ant_Address);
         return 1;
-
     }
     return -1;
 }
@@ -734,7 +755,7 @@ int main() {
     sf::RenderWindow window(sf::VideoMode(Canvas_X, Canvas_Y) , "Ant Simulation");
     window.setVerticalSyncEnabled(true); // call it once, after creating the window
     window.setActive(true);
-    window.setFramerateLimit(60); //could have somethign like microstepping in this
+    window.setFramerateLimit(FrameRate); //could have somethign like microstepping in this
 
     //Elaborate setupdata
     struct ant_struct* Ants_List = (*Setup_Data).ants_list;
