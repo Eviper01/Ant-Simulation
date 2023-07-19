@@ -12,19 +12,19 @@
 #define M_PI 3.14159265358979323846  /* pi */
 
 //Simulation Parameters
-#define Number_Ants 50
-#define Canvas_X 800
-#define Canvas_Y 600
+#define Number_Ants 75
+#define Canvas_X 1280
+#define Canvas_Y 720
 #define Number_Clusters 1
-#define Number_Foods 20
+#define Number_Foods 100
 
 //field/trail/horomone behaviour
 #define Trail_Increment 1.0 //raw amount that gets added by each ant
-#define Trail_Decay 0.995  //percent left per tick
+#define Trail_Decay 0.9975  //percent left per tick
 #define Trail_Diffuse 0.1 //percent after decay that spreads to the adjacenet nodes
 #define Trail_Cutoff 0.2
 #define Trail_Aging 1.0
-#define Trail_Maturity 5.0
+#define Trail_Maturity 1.0
 
 //Ant States
 #define Ant_Foraging 0
@@ -32,7 +32,7 @@
 
 //Ant Parameters
 #define Ant_View_Range 40
-#define Ant_Sense_Range 40 //this has a huge performance hit
+#define Ant_Sense_Range 30 //this has a huge performance hit
 #define Ant_Move_Variance 0.3 //angle in radians
 #define Ant_View_Angle 1.0 //Radians
 #define Ant_Interact_Range 8                           
@@ -67,7 +67,7 @@ struct ant_struct{
     double angle;
     char state;
     struct food_struct* carrying;
-    double timer; //TODO: the amount of trail the ant drops should be inversely proportional to the amount of time it has been in the state (i.e if ants switch states quickly they have a found an optimal path).
+    double timer;
 };
 
 struct colony_struct {
@@ -195,6 +195,7 @@ struct ant_struct* init_ant(struct ant_struct** Ants_List, double xpos, double y
         *Ants_List = (struct ant_struct*)malloc(sizeof(struct ant_struct)); 
         (*Ants_List)->next = NULL;
         (*Ants_List)->state = Ant_Foraging;
+        (*Ants_List)->timer = Trail_Increment;
         (*Ants_List)->angle = randfrom(0, 2*M_PI);
         (*Ants_List)->xpos = xpos;
         (*Ants_List)->ypos = ypos;
@@ -208,6 +209,7 @@ struct ant_struct* init_ant(struct ant_struct** Ants_List, double xpos, double y
     (*Ant_Address).next =  (struct ant_struct*)malloc(sizeof(struct ant_struct)); //This is never freed
     (*(*Ant_Address).next).next = NULL;
     (*(*Ant_Address).next).state = Ant_Foraging;
+    (*(*Ant_Address).next).timer = Trail_Increment;
     (*(*Ant_Address).next).angle = randfrom(0, 2*M_PI);
     (*(*Ant_Address).next).xpos = xpos;
     (*(*Ant_Address).next).ypos = ypos;
@@ -275,6 +277,7 @@ int in_interact_range(struct ant_struct* Ant_Address, void* Object, int type) {
 int pickup_food(struct ant_struct* Ant, struct food_struct* Food) {
     //TODO: place the ant into the no food state when there is not food left
     Ant->state = Ant_Homing;
+    Ant->timer = Trail_Increment;
     Ant->carrying = Food; 
     Food->carrying = Ant;
     return 0;
@@ -457,7 +460,7 @@ int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int 
     for (int Row = 0; Row < Canvas_X; Row++ ) {
         for(int Column = 0; Column < Canvas_Y; Column++) {
             double* Intensity = (Field_Intensity + Canvas_X*Row + Column);
-            *Intensity *= Trail_Decay;
+            *Intensity *= Trail_Decay*Trail_Decay;
             //diffusion
             double* Maturity  = (Field_Maturity + Canvas_X*Row + Column);
             if (*Intensity > Trail_Cutoff) {
@@ -533,12 +536,15 @@ int view_field(struct ant_struct* Ant, double* Field, double* Angle) {
                 if (Index > 0 && Index < Canvas_X*Canvas_Y) {
                     double Intensity = *(Field + Index);
                     if (Intensity > Max_Intensity) {
-                        Max_Intensity = Intensity;
                         double DeltaX = (double)Col - Ant->xpos;
                         double DeltaY = (double)Row - Ant->ypos;
-                        *Angle = atan2(DeltaY, DeltaX);
-                        Detected = 1;
-                    }
+                        double MagSquared = pow(DeltaX, 2) + pow(DeltaY, 2);
+                        if (MagSquared > 3.0) {
+                            Max_Intensity = Intensity;
+                            *Angle = atan2(DeltaY, DeltaX);
+                            Detected = 1;
+                        }
+                   }
                 }
             }
         }
@@ -557,13 +563,13 @@ int scan_field(struct ant_struct* Ant, double* Field, double* Angle) {
         for (int Col = -Ant_Sense_Range; Col <= Ant_Sense_Range; Col++) {
             int Index = Canvas_X*((int)Ant->xpos + Col)+ (int)Ant->ypos + Row;
             if(Index > 0 && Index < Canvas_X*Canvas_Y) {
-                double DeltaX = (double)Col - Ant->xpos;
-                double DeltaY = (double)Row - Ant->ypos;
+                double DeltaX = (double)Col;
+                double DeltaY = (double)Row;
                 double MagnitudeSquared = pow(DeltaX, 2) + pow(DeltaY, 2);
                 if(MagnitudeSquared > 1.0) {
                     double* intensity = (Field + Index);
                     if (*intensity > max_intensity) {
-                        *Angle = atan2((double)Row, (double)Col);
+                        *Angle = atan2(DeltaY, DeltaX);
                         Detected = 1;
                         max_intensity = *intensity;
                     }
@@ -577,11 +583,11 @@ int scan_field(struct ant_struct* Ant, double* Field, double* Angle) {
 
 
 int ant_update(struct ant_struct* Ant_Address, struct food_struct** Foods_List,  double* Foraging_Field_Intensity, double* Foraging_Field_Maturity, double* Homing_Field_Intensity, double* Homing_Field_Maturity, struct colony_struct* Colonys_List) {
-    //TODO: only drop trails upon recent discovery
-
+   //TODO: when seeing a colony or food when you aren't looking reset your timer to alert other ants 
+    Ant_Address->timer *=Trail_Decay;
     if ((*Ant_Address).state == Ant_Foraging) {
 
-        *(Homing_Field_Intensity + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
+        *(Homing_Field_Intensity + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Ant_Address->timer;
 
         //check if food is left in the level
         if (*Foods_List == NULL) {
@@ -642,7 +648,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct** Foods_List, 
     if ((*Ant_Address).state == Ant_Homing) {
 
 
-        *(Foraging_Field_Intensity + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Trail_Increment;
+        *(Foraging_Field_Intensity + Canvas_X*((int)Ant_Address->xpos) + (int)Ant_Address->ypos) += Ant_Address->timer;
         //Check if you can see a colony
         struct colony_struct* Colony = Colonys_List;
         double Homing_Angle;
@@ -661,6 +667,7 @@ int ant_update(struct ant_struct* Ant_Address, struct food_struct** Foods_List, 
                 delete_object(Ant_Address->carrying, (void**)Foods_List, Type_Food);
                 Ant_Address->carrying = NULL; 
                 Ant_Address->state = Ant_Foraging;
+                Ant_Address->timer = Trail_Increment;
                 double Angle = 0;
                 if (scan_field(Ant_Address, Foraging_Field_Maturity, &Angle)) {
                     Ant_Address->angle = Angle; 
