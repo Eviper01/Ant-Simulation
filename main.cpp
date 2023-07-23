@@ -20,14 +20,15 @@
 #define Diffusion 0
 
 //Rendering
-#define Rendering_View_Cone 0
+#define Rendering_View_Cone 0 
 #define Rendering_Foraging_Trail 1
 #define Rendering_Homing_Trail 1
-#define FrameRate 60
+#define FrameRate 144
+#define MicroStep 1
 
 //field/trail/horomone behaviour
 #define Trail_Increment 1.0 //raw amount that gets added by each ant
-#define Trail_Decay 0.9975  //percent left per tick
+#define Trail_Decay 0.9995  //percent left per tick
 #define Trail_Cutoff 0.2
 #define Trail_Aging 1.0
 #define Trail_Maturity 1.0
@@ -40,11 +41,11 @@
 
 //Ant Parameters
 #define Ant_View_Range 40
-#define Ant_Sense_Range 30 //this has a huge performance hit
-#define Ant_Move_Variance 0.3 //angle in radians
+#define Ant_Sense_Range 15 //this has a huge performance hit
+#define Ant_Move_Variance 0.1 //angle in radians
 #define Ant_View_Angle 0.4 //Radians
-#define Ant_Interact_Range 8                           
-#define Ant_Movement_Range 3
+#define Ant_Interact_Range 8                         
+#define Ant_Movement_Range 1
 #define Ant_Mem_Decay 0.9
 
 
@@ -64,7 +65,6 @@ struct food_struct {
     double ypos;
     struct ant_struct* carrying;
 };
-//TODO: some system where the ant can lose interest in strong chemicals if its found a stronger one recenty
 struct ant_struct{
     struct ant_struct* next;
     double xpos;
@@ -495,8 +495,8 @@ int diffuse_field(double* Field) {
 
 
 
-int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int type, sf::RenderWindow* window) {
-   
+int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int type, sf::RenderWindow* window, int Rendering) {
+    //TODO: simd this
     sf::VertexArray verticies(sf::Points, Canvas_X*Canvas_Y);
     for (int Col = 0; Col < Canvas_X; Col++ ) {
         for(int Row = 0; Row < Canvas_Y; Row++) {
@@ -507,30 +507,33 @@ int renderAndupdate_field(double* Field_Intensity, double* Field_Maturity,  int 
             double* Maturity  = (Field_Maturity + Index);
             if (*Intensity > Trail_Cutoff) {
                 *Maturity += Trail_Aging;
-                verticies[Index].position = sf::Vector2f((float)Col, (float)Row);
-                if (type == Type_Foraging) {
-                    verticies[Index].color = sf::Color(0, 255, 0, 128 * logisticCurve(*(Maturity)));
-                } 
-                if (type == Type_Homing) {
-                    verticies[Index].color = sf::Color(0, 0, 255, 128 * logisticCurve(*(Maturity)));
-                } 
+                if (Rendering) {
+                    verticies[Index].position = sf::Vector2f((float)Col, (float)Row);
+                    if (type == Type_Foraging) {
+                        verticies[Index].color = sf::Color(0, 255, 0, 128 * logisticCurve(*(Maturity)));
+                    } 
+                    if (type == Type_Homing) {
+                        verticies[Index].color = sf::Color(0, 0, 255, 128 * logisticCurve(*(Maturity)));
+                    } 
 
+                }
             }
             else {
-            *Maturity = 0;
+                *Maturity = 0;
             }
         }
     }
-    window->draw(verticies);
+    if (Rendering) {
+        window->draw(verticies);
+    }
     if(Diffusion) {
         diffuse_field(Field_Intensity);
         diffuse_field(Field_Maturity);
     }
     return 1;
 }
-//TODO: in the right plane there is some very odd pathfinding behviaour
 int view_field(struct ant_struct* Ant, double* Field, double* Angle) {
-
+    //TODO: SIMD this
     double Max_Intensity = Trail_Maturity;
     int Detected = 0;
     double x1 = Ant->xpos;
@@ -600,6 +603,7 @@ int view_field(struct ant_struct* Ant, double* Field, double* Angle) {
 int scan_field(struct ant_struct* Ant, double* Field, double* Angle) {
     //return the angle of the most hormone concentration
     //Check a rectange around
+    //TODO: SIMD this bitch
     double max_intensity = Trail_Maturity;
     int Detected = 0;
     for (int Row = -Ant_Sense_Range; Row <= Ant_Sense_Range; Row++) {
@@ -611,10 +615,11 @@ int scan_field(struct ant_struct* Ant, double* Field, double* Angle) {
                 double MagnitudeSquared = pow(DeltaX, 2) + pow(DeltaY, 2);
                 if(MagnitudeSquared > 1.0) {
                     double* intensity = (Field + Index);
-                    if (*intensity > max_intensity) {
+                    if (*intensity > max_intensity && *intensity > Ant->max_intensity) {
                         *Angle = atan2(DeltaY, DeltaX);
                         Detected = 1;
                         max_intensity = *intensity;
+                        Ant->max_intensity = *intensity;
                     }
                 }
             }
@@ -649,8 +654,8 @@ void drop_trails(struct ant_struct* Ant, double* Field) {
 
 
 int ant_update(struct ant_struct* Ant, struct food_struct** Foods_List,  double* Foraging_Field_Intensity, double* Foraging_Field_Maturity, double* Homing_Field_Intensity, double* Homing_Field_Maturity, struct colony_struct* Colonys_List) {
-
-    Ant->max_intensity +=Ant_Mem_Decay; 
+    //TODO: refactor to avoid recyled code
+    Ant->max_intensity += Trail_Aging; //the algoarimt for this needs to prevent ants getting stuck but also stop them losing interest in new trials 
     Ant->timer *=Trail_Decay;
     if ((*Ant).state == Ant_Foraging) {
 
@@ -704,6 +709,9 @@ int ant_update(struct ant_struct* Ant, struct food_struct** Foods_List,  double*
 
         double Angle = 0;
         if (view_field(Ant, Foraging_Field_Maturity, &Angle)) {
+            Ant->angle = Angle; 
+        }
+        else if(scan_field(Ant, Foraging_Field_Maturity, &Angle)) {
             Ant->angle = Angle; 
         }
 
@@ -784,6 +792,9 @@ int ant_update(struct ant_struct* Ant, struct food_struct** Foods_List,  double*
         if (view_field(Ant, Homing_Field_Maturity, &Angle)) {
             Ant->angle = Angle; 
         }
+        else if (scan_field(Ant, Homing_Field_Maturity, &Angle)) {
+            Ant->angle = Angle; 
+        }
 
         //check if you can see some food
         if (*Foods_List != NULL) {
@@ -838,42 +849,57 @@ struct setup_struct* setup() {
     return Setup_Data;
 }
 
-void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Foraging_Field_Intensity, double* Foraging_Field_Maturity, double* Homing_Field_Intensity, double* Homing_Field_Maturity, struct food_struct** Foods_List, struct colony_struct** Colonys_List) {
+void loop(sf::RenderWindow* window, struct ant_struct** Ants_List, double* Foraging_Field_Intensity, double* Foraging_Field_Maturity, double* Homing_Field_Intensity, double* Homing_Field_Maturity, struct food_struct** Foods_List, struct colony_struct** Colonys_List, int Rendering) {
 
     // Set of Walls in the Level (Investigate what datatype to use)
     
     //ants
     struct ant_struct* Ant = *Ants_List;
-    while (Ant->next != NULL) {
+    int Looping = 1;
+    while (Looping) {
         ant_update(Ant, Foods_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, *Colonys_List);
-        render_ant(Ant, window);
-        //draw the ant
-        Ant = Ant->next;
+        if (Rendering) { 
+            render_ant(Ant, window);
+        }
+        if (Ant->next == NULL) {
+            Looping = 0; 
+        }
+        else {
+            Ant = Ant->next;
+        }
     }
-    ant_update(Ant, Foods_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, *Colonys_List);
-    render_ant(Ant, window);
 
     //foods
-    struct food_struct* Food_Address = *Foods_List;
-    while (Food_Address->next != NULL) {
-        render_food(Food_Address, window);
-        Food_Address = Food_Address->next;
-    }
-    render_food(Food_Address, window);
-    
-    //colonies
-    struct colony_struct* Colony_Address = *Colonys_List;
-    while (Colony_Address->next != NULL) {
-        render_colony(Colony_Address, window);
-        Colony_Address = Colony_Address->next;
-    }
+    if (Rendering) {
+        struct food_struct* Food_Address = *Foods_List;
+        Looping = 1;
+        while (Looping) {
+            render_food(Food_Address, window);
+            if (Food_Address->next == NULL) {
+                Looping = 0;
+            }
+            else{
+                Food_Address = Food_Address->next;
+            }
+        }
+        Looping = 1;
+        struct colony_struct* Colony_Address = *Colonys_List;
+        while (Looping) {
+            render_colony(Colony_Address, window);
+            if (Colony_Address->next == NULL) {
+                Looping = 0; 
+            }
+            else {
+                Colony_Address = Colony_Address->next;
+            }
+        }
 
 
-    render_colony(Colony_Address, window);
-    
-    //trail fields
-    renderAndupdate_field(Foraging_Field_Intensity, Foraging_Field_Maturity, Type_Foraging, window);
-    renderAndupdate_field(Homing_Field_Intensity, Homing_Field_Maturity, Type_Homing, window);
+
+    }
+   
+    renderAndupdate_field(Foraging_Field_Intensity, Foraging_Field_Maturity, Type_Foraging, window, Rendering);
+    renderAndupdate_field(Homing_Field_Intensity, Homing_Field_Maturity, Type_Homing, window, Rendering);
 
 }
 
@@ -917,12 +943,18 @@ int main() {
             }
 
         }
-        // clear the window with black color
-        window.clear(sf::Color::Black);
-        //printf("Looping %d\n", i);
-        loop(&window, &Ants_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, &Foods_List, &Colonys_List);
-        i++; 
-        window.display();
-    }
+
+        i++;
+        int Rendering = (i%MicroStep==0); 
+        if (Rendering) {
+            window.clear(sf::Color::Black);
+        }
+
+        loop(&window, &Ants_List, Foraging_Field_Intensity, Foraging_Field_Maturity, Homing_Field_Intensity, Homing_Field_Maturity, &Foods_List, &Colonys_List, Rendering);
+       
+        if (Rendering) {
+            window.display();
+        }
+   }
     return 0;
 }
