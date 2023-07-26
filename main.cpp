@@ -38,6 +38,7 @@
 // Ant States
 #define Ant_Foraging 0
 #define Ant_Homing 1
+#define Ant_Homing_Last_Food 2
 
 // Ant Parameters
 #define Ant_View_Range 40
@@ -64,6 +65,7 @@ struct food_struct {
     double xpos;
     double ypos;
     struct ant_struct *carrying;
+    int ID;
 };
 struct ant_struct {
     struct ant_struct *next;
@@ -145,6 +147,8 @@ int is_point_in_triangle(int x, int y, int p1x, int p1y, int p2x, int p2y,
 
 struct food_struct *init_food(struct food_struct **Foods_List, double xpos,
         double ypos) {
+    static int ID = 0;
+    ID++;
     if (*Foods_List == NULL) {
         *Foods_List = (struct food_struct *)malloc(sizeof(struct food_struct));
         (*Foods_List)->next = NULL;
@@ -152,6 +156,7 @@ struct food_struct *init_food(struct food_struct **Foods_List, double xpos,
         (*Foods_List)->xpos = xpos;
         (*Foods_List)->ypos = ypos;
         (*Foods_List)->carrying = NULL;
+        (*Foods_List)->ID = ID;
         return *Foods_List;
     }
 
@@ -166,6 +171,7 @@ struct food_struct *init_food(struct food_struct **Foods_List, double xpos,
     (*(*Food_Address).next).ypos = ypos;
     (*(*Food_Address).next).carrying = NULL;
     (*(*Food_Address).next).last = Food_Address;
+    (*(*Food_Address).next).ID = ID;
     return (*Food_Address).next;
 }
 
@@ -690,7 +696,7 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
             return 0;
         }
 
-        struct food_struct *Food_Item = *Foods_List;
+        struct food_struct* Food_Item = *Foods_List;
         double Least_Mag_Squared = -1;
         double Move_X = 0;
         double Move_Y = 0;
@@ -701,12 +707,33 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
             if (in_interact_range(Ant, Food_Item, Type_Food) &&
                     Food_Item->carrying == NULL) {
                 pickup_food(Ant, Food_Item);
+
+                //If we can pickup the food check if there's other food nearby
+                    Food_Item = *Foods_List;
+                    while(Looping) {
+
+                    double Default  = 0;
+
+                    if(in_sense_range(Ant, Food_Item, &Default, &Default, &Default, Type_Food) && Food_Item->carrying == NULL) {
+                        Looping = 0;
+                    }
+                    
+                    if (Food_Item->next != NULL) {
+                        Food_Item = Food_Item->next;
+                    }
+                    else {
+                        Looping = 0;
+                        //switch ant state
+                    }
+                }
+                
                 double Angle = 0;
                 if (scan_field_SIMD(Ant, Homing_Field_Maturity, &Angle)) {
                     Ant->angle = Angle;
                 }
                 move_randomly(Ant);
                 return 1;
+
             }
             double Food_Rel_X = 0;
             double Food_Rel_Y = 0;
@@ -762,9 +789,15 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
         return 1;
     }
 
-    if ((*Ant).state == Ant_Homing) {
+    if ((*Ant).state == Ant_Homing || Ant->state == Ant_Homing_Last_Food) {
+        
+        if (Ant_Homing_Last_Food) {
+        
+        }
+        else {
 
-        drop_trails(Ant, Foraging_Field_Intensity);
+            drop_trails(Ant, Foraging_Field_Intensity);
+        }
         // Check if you can see a colony
         struct colony_struct *Colony = Colonys_List;
         double Homing_Angle;
