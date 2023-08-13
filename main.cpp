@@ -12,9 +12,9 @@
 #define M_PI 3.14159265358979323846 /* pi */
 
 // Simulation Parameters
-#define Number_Ants 75
-#define Canvas_X 1280
-#define Canvas_Y 720
+#define Number_Ants 50
+#define Canvas_X 800
+#define Canvas_Y 600
 #define Number_Clusters 5
 #define Number_Foods 25
 #define Diffusion 0
@@ -30,7 +30,7 @@
 #define Trail_Increment 1.0 // raw amount that gets added by each ant
 #define Trail_Decay 0.9995  // percent left per tick
 #define Trail_Cutoff 0.2
-#define Trail_Aging 1.0
+#define Trail_Aging 50.0
 #define Trail_Maturity 1.0
 #define Trail_Diffuse 0.005 // percent after decay that spreads to the adjacenet nodes
 #define Diffusion_Range 1 // size of the square we diffuse into
@@ -54,7 +54,7 @@
 #define Type_Colony 1
 #define Type_Foraging 2
 #define Type_Homing 3
-
+#define Type_NoFood 4
 // ObjectStructs:
 //
 // TODO: food list should be shorted into a 2d linked list of food objects that
@@ -92,7 +92,7 @@ struct setup_struct {
 };
 
 // MathHelpers:
-double logisticCurve(double value) { return 1.0 / (1 + exp(-value)); }
+double logisticCurve(unsigned short value) { return 1.0 / (1 + exp(-(double)value)); }
 
 double isValueInRange(double value, double xbound1, double xbound2) {
     // Check if xbound1 and xbound2 are in numerical order
@@ -291,6 +291,7 @@ int in_interact_range(struct ant_struct *Ant, void *Object, int type) {
 
 int pickup_food(struct ant_struct *Ant, struct food_struct *Food) {
     // TODO: place the ant into the no food state when there is not food left
+    // TODO: move carried food into a different linked list
     Ant->state = Ant_Homing;
     Ant->timer = Trail_Increment;
     Ant->max_intensity = 0.0;
@@ -310,7 +311,7 @@ int in_view_cone(struct ant_struct *Ant, void *Object, double *Target_X,
         double Delta_Angle = fabs(Relative_Angle - (*Ant).angle); // Absoulte value
         double Magnitude_Squared = pow(Delta_X, 2) + pow(Delta_Y, 2);
         *Distance = Magnitude_Squared;
-        if ((Magnitude_Squared < pow(Ant_View_Range, 2)) &&
+        if ((Magnitude_Squared < pow((double)Ant_View_Range, 2)) &&
                 (Delta_Angle < Ant_View_Angle)) {
             *Target_X = Delta_X;
             *Target_Y = Delta_Y;
@@ -434,7 +435,15 @@ int render_ant(struct ant_struct *Ant, sf::RenderWindow *window) {
     if (Ant->state == Ant_Homing) {
         sf::CircleShape shape(3);
         shape.setOrigin(1.5, 1.5);
-        shape.setFillColor(sf::Color(0, 0, 250));
+        shape.setFillColor(sf::Color(0, 250, 0));
+        shape.setPosition(Ant->xpos, Ant->ypos);
+        window->draw(shape);
+        return 1;
+    }
+    if(Ant->state == Ant_Homing_Last_Food) {
+        sf::CircleShape shape(3);
+        shape.setOrigin(1.5, 1.5);
+        shape.setFillColor(sf::Color(250, 0, 0));
         shape.setPosition(Ant->xpos, Ant->ypos);
         window->draw(shape);
         return 1;
@@ -451,11 +460,12 @@ int render_food(struct food_struct *Food, sf::RenderWindow *window) {
         window->draw(shape);
         return 0;
     }
+/*
     sf::CircleShape shape(3);
     shape.setOrigin(1.5, 1.5);
     shape.setFillColor(sf::Color(0, 255, 0));
     shape.setPosition((Food->carrying)->xpos, (Food->carrying)->ypos);
-    window->draw(shape);
+    window->draw(shape);*/
     return 0;
 }
 
@@ -520,6 +530,10 @@ int renderAndupdate_field(double *Field_Intensity, unsigned short *Field_Maturit
                     if (type == Type_Homing) {
                         verticies[Index].color =
                             sf::Color(0, 0, 255, 128 * logisticCurve(*(Maturity)));
+                    }
+                    if (type == Type_NoFood) {
+                        verticies[Index].color = sf::Color(250,0,0, 128*logisticCurve(*(Maturity)));
+                    
                     }
                 }
             } else {
@@ -680,7 +694,7 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
         double *Foraging_Field_Intensity,
         unsigned short *Foraging_Field_Maturity, double *Homing_Field_Intensity,
         unsigned short *Homing_Field_Maturity,
-        struct colony_struct *Colonys_List) {
+        struct colony_struct *Colonys_List, double* NoFood_Field_Intensity, unsigned short* NoFood_Field_Maturity) {
     // TODO: refactor to avoid recyled code
     Ant->max_intensity += Trail_Aging; 
     // the algoarimt for this needs to prevent ants getting stuck
@@ -723,7 +737,7 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
                     }
                     else {
                         Looping = 0;
-                        //switch ant state
+                        Ant->state = Ant_Homing_Last_Food;
                     }
                 }
                 
@@ -761,12 +775,14 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
         }
 
         double Angle = 0;
-        if (view_field(Ant, Foraging_Field_Maturity, &Angle)) {
-            Ant->angle = Angle;
-        } else if (scan_field_SIMD(Ant, Foraging_Field_Maturity, &Angle)) {
-            Ant->angle = Angle;
-        }
-
+           if (!scan_field_SIMD(Ant, NoFood_Field_Maturity, &Angle)) {
+             
+               if (view_field(Ant, Foraging_Field_Maturity, &Angle)) {
+                   Ant->angle = Angle;
+               } else if (scan_field_SIMD(Ant, Foraging_Field_Maturity, &Angle)) {
+                   Ant->angle = Angle;
+               }
+           }
         // Checking the colonies to reset timer
         Looping = 1;
         struct colony_struct *Colony = Colonys_List;
@@ -791,11 +807,10 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
 
     if ((*Ant).state == Ant_Homing || Ant->state == Ant_Homing_Last_Food) {
         
-        if (Ant_Homing_Last_Food) {
-        
+        if (Ant->state == Ant_Homing_Last_Food) {
+            drop_trails(Ant, NoFood_Field_Intensity);
         }
         else {
-
             drop_trails(Ant, Foraging_Field_Intensity);
         }
         // Check if you can see a colony
@@ -907,7 +922,7 @@ void loop(sf::RenderWindow *window, struct ant_struct **Ants_List,
         double *Foraging_Field_Intensity, unsigned short *Foraging_Field_Maturity,
         double *Homing_Field_Intensity, unsigned short *Homing_Field_Maturity,
         struct food_struct **Foods_List, struct colony_struct **Colonys_List,
-        int Rendering) {
+        int Rendering, double* NoFood_Field_Intensity, unsigned short* NoFood_Field_Maturity) {
 
     // Set of Walls in the Level (Investigate what datatype to use)
 
@@ -917,7 +932,7 @@ void loop(sf::RenderWindow *window, struct ant_struct **Ants_List,
     while (Looping) {
         ant_update(Ant, Foods_List, Foraging_Field_Intensity,
                 Foraging_Field_Maturity, Homing_Field_Intensity,
-                Homing_Field_Maturity, *Colonys_List);
+                Homing_Field_Maturity, *Colonys_List, NoFood_Field_Intensity, NoFood_Field_Maturity);
         if (Rendering) {
             render_ant(Ant, window);
         }
@@ -956,6 +971,8 @@ void loop(sf::RenderWindow *window, struct ant_struct **Ants_List,
             Type_Foraging, window, Rendering);
     renderAndupdate_field(Homing_Field_Intensity, Homing_Field_Maturity,
             Type_Homing, window, Rendering);
+
+    renderAndupdate_field(NoFood_Field_Intensity, NoFood_Field_Maturity, Type_NoFood, window, Rendering);
 }
 
 int main() {
@@ -981,6 +998,9 @@ int main() {
     unsigned short *Foraging_Field_Maturity = (unsigned short *)malloc(Canvas_X * Canvas_Y * sizeof(unsigned short));
     unsigned short *Homing_Field_Maturity = (unsigned short *)malloc(Canvas_X * Canvas_Y * sizeof(unsigned short));
 
+    double *NoFood_Field_Intensity = (double*)malloc(Canvas_X* Canvas_Y* sizeof(double));
+    unsigned short *NoFood_Field_Matuirty = (unsigned short*)malloc(Canvas_X * Canvas_Y * sizeof(unsigned short));
+
     int i = 0;
 
     while (window.isOpen()) {
@@ -1005,7 +1025,7 @@ int main() {
 
         loop(&window, &Ants_List, Foraging_Field_Intensity, Foraging_Field_Maturity,
                 Homing_Field_Intensity, Homing_Field_Maturity, &Foods_List,
-                &Colonys_List, Rendering);
+                &Colonys_List, Rendering, NoFood_Field_Intensity, NoFood_Field_Matuirty);
 
         if (Rendering) {
             window.display();
