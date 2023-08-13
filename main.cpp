@@ -18,7 +18,8 @@
 #define Number_Clusters 8
 #define Number_Foods 25
 #define Diffusion 0
-
+#define Number_Walls 5
+#define Wall_Verticies 15
 // Rendering
 #define Rendering_View_Cone 0
 #define Rendering_Foraging_Trail 1
@@ -82,11 +83,23 @@ struct colony_struct {
     double radius;
 };
 
+struct wall_struct {
+    double* x_points; //list of x coordinates of verticies
+    double* y_points; //list of y coordinates of verticies
+    int size; //amount of points in the polygon
+    struct wall_struct* next;
+};
+
 struct setup_struct {
     struct ant_struct *ants_list;
     struct food_struct *foods_list;
     struct colony_struct *colonys_list;
+    struct wall_struct *walls_list;
 };
+
+
+
+
 
 // MathHelpers:
 double logisticCurve(unsigned short value) { return 1.0 / (1 + exp(-(double)value)); }
@@ -145,6 +158,19 @@ double radius_from_center(struct food_struct* Food){
 
 }
 
+int ccw(double Ax, double Ay, double Bx, double By, double Cx, double Cy) {
+    return (Cy-Ay)*(Bx-Ax) > (By-Ay)*(Cx-Ax);
+}
+
+
+int intersect(double Ax, double Ay, double Bx, double By, double Cx, double Cy, double Dx, double Dy) {
+    return ccw(Ax,Ay,Cx,Cy,Dx,Dy) != ccw(Bx,By,Cx,Cy,Dx,Dy) and ccw(Ax,Ay,Bx,By,Cx,Cy) != ccw(Ax, Ay,Bx,By,Dx,Dy);
+}
+
+
+
+
+
 // DataInits and Handling:
 
 
@@ -165,6 +191,69 @@ struct food_struct* delete_food(food_struct* Food, food_struct** Food_List) {
     return Previous_Food;
 }
 
+struct wall_struct* init_wall(struct wall_struct** Walls_List, int size) {
+
+    struct wall_struct* Wall = (struct wall_struct*)malloc(sizeof(struct wall_struct));
+    Wall->x_points = (double*)malloc(size*sizeof(double));
+    Wall->y_points = (double*)malloc(size*sizeof(double));
+    Wall->size = size;
+    Wall->next = NULL;
+    int Building_Wall = 1;
+    while(Building_Wall) {
+        Wall->x_points[0] = randfrom(0, Canvas_X);  
+        Wall->y_points[0] = randfrom(0, Canvas_Y);
+        //Place all the points except the last
+        for(int i = 1; i < size; i++) {
+            int Generating = 1;
+            while(Generating) {
+                Wall->x_points[i] = randfrom(0, Canvas_X);  
+                Wall->y_points[i] = randfrom(0, Canvas_Y);
+                Generating = 0;
+                if(i>1) {
+                    double Vec1x = Wall->x_points[i-2] - Wall->x_points[i+1];
+                    double Vec1y = Wall->y_points[i-2] - Wall->y_points[i+1];
+                    double Vec2x = Wall->x_points[i] - Wall->x_points[i+1];
+                    double Vec2y = Wall->y_points[i] - Wall->y_points[i+1];
+                    double dot = (Vec1x*Vec2x+Vec1y*Vec2y); // the sign of this can be used to view the concavity
+                    if( dot < 0) {
+                    //TODO: Flesh this out 
+                    }
+                }
+                for(int j = 1; j < i; j ++) {
+                    double Ax = Wall->x_points[j];
+                    double Ay = Wall->y_points[j];
+                    double Bx = Wall->x_points[j-1];
+                    double By = Wall->x_points[j-1];
+                    if(intersect(Wall->x_points[i-1],Wall->y_points[i-1],Wall->x_points[i], Wall->y_points[i], Ax,Ay,Bx,By) and i != j) {
+                        Generating = 1;
+                    }
+                }
+            }
+        }
+        //Check if the last connects
+        Building_Wall = 0;
+        for(int j = 1; j < size; j ++) {
+            double Ax = Wall->x_points[j];
+            double Ay = Wall->y_points[j];
+            double Bx = Wall->x_points[j-1];
+            double By = Wall->x_points[j-1];
+            if(intersect(Wall->x_points[size],Wall->y_points[size],Wall->x_points[0], Wall->y_points[0], Ax,Ay,Bx,By)) {
+                Building_Wall = 1;
+            }
+        }
+    }
+    if(*Walls_List == NULL) {
+        *Walls_List = Wall;
+        return Wall;
+    }
+    struct wall_struct* Prev_Wall = *Walls_List;
+    while(Prev_Wall->next != NULL) {
+        Prev_Wall = Prev_Wall->next; 
+    }
+    Prev_Wall->next = Wall;
+    return Wall;
+
+}
 
 
 
@@ -509,6 +598,20 @@ int render_colony(struct colony_struct *Colony, sf::RenderWindow *window) {
     window->draw(shape);
     return 0;
 }
+
+int render_wall(struct wall_struct* Wall, sf::RenderWindow *window) {
+    sf::ConvexShape polygon;
+    polygon.setPointCount(Wall->size);
+    for(int i; i<Wall->size; i++){
+        polygon.setPoint(i, sf::Vector2f(Wall->x_points[i], Wall->y_points[i]));
+    }
+    polygon.setFillColor(sf::Color(220,220,220));
+    window->draw(polygon);
+}
+
+
+
+
 
 int diffuse_field(double *Field) {
 
@@ -945,8 +1048,7 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
 
 struct setup_struct *setup() {
 
-    struct setup_struct *Setup_Data =
-        (struct setup_struct *)malloc(sizeof(struct setup_struct));
+    struct setup_struct *Setup_Data = (struct setup_struct *)malloc(sizeof(struct setup_struct));
 
     Setup_Data->ants_list = NULL;
     for (int i = 0; i < Number_Ants; i++) {
@@ -969,19 +1071,36 @@ struct setup_struct *setup() {
     for(int i = 0; i<Number_Clusters*Number_Foods; i++) {
         Food = Food->next;
     }
-
-
-
+    //Walls
+    
+    Setup_Data->walls_list = NULL;
+    for(int i = 0; i < Number_Walls; i++) {
+        init_wall(&Setup_Data->walls_list, Wall_Verticies);
+    }
     return Setup_Data;
 }
 
 void loop(sf::RenderWindow *window, struct ant_struct **Ants_List,
         double *Foraging_Field_Intensity, unsigned short *Foraging_Field_Maturity,
         double *Homing_Field_Intensity, unsigned short *Homing_Field_Maturity,
-        struct food_struct **Foods_List, struct colony_struct **Colonys_List,
+        struct food_struct **Foods_List, struct colony_struct **Colonys_List, struct wall_struct** Walls_List,
         int Rendering) {
 
-    //TODO: Set of Walls in the Level (Investigate what datatype to use)
+    if(Rendering) {
+        struct wall_struct* Wall = *Walls_List;
+        int Looping = 1;
+        while(Looping) {
+            render_wall(Wall, window);
+            if(Wall->next == NULL) {
+                Looping = 0;
+            }
+            else {
+                Wall = Wall->next;
+            }
+        }
+
+    }
+
 
     // ants
     struct ant_struct *Ant = *Ants_List;
@@ -1048,6 +1167,7 @@ int main() {
     struct ant_struct *Ants_List = (*Setup_Data).ants_list;
     struct food_struct *Foods_List = (*Setup_Data).foods_list;
     struct colony_struct *Colonys_List = (*Setup_Data).colonys_list;
+    struct wall_struct *Walls_List = Setup_Data->walls_list;
 
     double *Foraging_Field_Intensity = (double *)malloc(Canvas_X * Canvas_Y * sizeof(double));
     double *Homing_Field_Intensity = (double *)malloc(Canvas_X * Canvas_Y * sizeof(double));
@@ -1078,7 +1198,7 @@ int main() {
 
         loop(&window, &Ants_List, Foraging_Field_Intensity, Foraging_Field_Maturity,
                 Homing_Field_Intensity, Homing_Field_Maturity, &Foods_List,
-                &Colonys_List, Rendering);
+                &Colonys_List, &Walls_List, Rendering);
 
         if (Rendering) {
             window.display();
