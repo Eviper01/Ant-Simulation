@@ -15,7 +15,7 @@
 #define Number_Ants 50
 #define Canvas_X 800
 #define Canvas_Y 600
-#define Number_Clusters 5
+#define Number_Clusters 8
 #define Number_Foods 25
 #define Diffusion 0
 
@@ -38,7 +38,7 @@
 // Ant States
 #define Ant_Foraging 0
 #define Ant_Homing 1
-#define Ant_Homing_Last_Food 2
+#define Ant_Homing_NoFood 2
 
 // Ant Parameters
 #define Ant_View_Range 40
@@ -56,15 +56,13 @@
 #define Type_Homing 3
 #define Type_NoFood 4
 // ObjectStructs:
-//
-// TODO: food list should be shorted into a 2d linked list of food objects that
-// is sorted by x and y position
 struct food_struct {
-    struct food_struct *next;
-    struct food_struct *last;
+    //Sorted by from center of the tile radius
+    struct food_struct* next;
+    struct food_struct* last;
     double xpos;
     double ypos;
-    struct ant_struct *carrying;
+    double radius_from_center;
     int ID;
 };
 struct ant_struct {
@@ -73,7 +71,6 @@ struct ant_struct {
     double ypos;
     double angle;
     char state;
-    struct food_struct *carrying;
     double timer;
     unsigned short max_intensity;
 };
@@ -143,10 +140,35 @@ int is_point_in_triangle(int x, int y, int p1x, int p1y, int p2x, int p2y,
     return (u >= 0 && v >= 0 && u + v <= 1);
 }
 
-// DataInits:
+double radius_from_center(struct food_struct* Food){
+ return  sqrt(pow((Food->xpos - Canvas_X/2),2) + pow((Food->ypos - Canvas_Y/2),2));
 
-struct food_struct *init_food(struct food_struct **Foods_List, double xpos,
-        double ypos) {
+}
+
+// DataInits and Handling:
+
+
+struct food_struct* delete_food(food_struct* Food, food_struct** Food_List) {
+    struct food_struct* Previous_Food;
+    // deleting zero breaks the system
+    if (Food->next != NULL) {
+        (Food->next)->last = Food->last;
+    }
+    if (Food->last != NULL) {
+        (Food->last)->next = Food->next;
+        Previous_Food = Food->last;
+    } else {
+        *Food_List = Food->next;
+        Previous_Food = Food->next;
+    }
+    free(Food);
+    return Previous_Food;
+}
+
+
+
+
+struct food_struct *init_food(struct food_struct **Foods_List, double xpos, double ypos) {
     static int ID = 0;
     ID++;
     if (*Foods_List == NULL) {
@@ -155,24 +177,56 @@ struct food_struct *init_food(struct food_struct **Foods_List, double xpos,
         (*Foods_List)->last = NULL;
         (*Foods_List)->xpos = xpos;
         (*Foods_List)->ypos = ypos;
-        (*Foods_List)->carrying = NULL;
         (*Foods_List)->ID = ID;
+        (*Foods_List)->radius_from_center = radius_from_center(*Foods_List);
         return *Foods_List;
     }
 
-    struct food_struct *Food_Address = *Foods_List;
-    while ((*Food_Address).next != NULL) {
-        Food_Address = (*Food_Address).next;
+    //There is already food
+    //First step is to find the food with the greatest r smaller than xpos
+    struct food_struct* prev_food = *Foods_List;
+    double radius = sqrt(pow((xpos - Canvas_X/2),2) + pow((ypos - Canvas_Y/2),2));
+
+    //handle the edge case of this being the first item
+    if(prev_food->radius_from_center > radius) {
+        struct food_struct* new_food = (struct food_struct*)malloc(sizeof(struct food_struct));
+        new_food->last = NULL;
+        new_food->next = prev_food;
+        new_food->ID = ID;
+        new_food->xpos = xpos;
+        new_food->ypos = ypos;
+        new_food->radius_from_center = radius_from_center(new_food);
+        *Foods_List = new_food;
+        return *Foods_List;
     }
-    (*Food_Address).next = (struct food_struct *)malloc(
-            sizeof(struct food_struct)); // This is never freed
-    (*(*Food_Address).next).next = NULL;
-    (*(*Food_Address).next).xpos = xpos;
-    (*(*Food_Address).next).ypos = ypos;
-    (*(*Food_Address).next).carrying = NULL;
-    (*(*Food_Address).next).last = Food_Address;
-    (*(*Food_Address).next).ID = ID;
-    return (*Food_Address).next;
+
+    while(prev_food->next != NULL){
+        if(prev_food->next->radius_from_center < radius) {
+            prev_food = prev_food->next;
+        }
+        else{
+            break;
+        }
+    }
+    //now we have the food with the lowest radius add it to the list there
+    struct food_struct* new_food = (struct food_struct*)malloc(sizeof(struct food_struct));
+    struct food_struct* next_food = prev_food->next;
+    if(next_food != NULL) {
+        next_food->last = new_food; 
+    }
+    prev_food->next = new_food;
+    new_food->next = next_food;
+    new_food->last = prev_food;
+    new_food->ID = ID;
+    new_food->xpos = xpos;
+    new_food->ypos = ypos;
+    new_food->radius_from_center = radius_from_center(new_food);
+    if(new_food->next != NULL) {
+    }
+    else {
+    }
+    return *Foods_List;
+
 }
 
 struct colony_struct *init_colony(struct colony_struct **Colonys_List,
@@ -244,7 +298,7 @@ int in_sense_range(struct ant_struct *Ant, void *Object, double *Target_X,
         *Target_X = Delta_X;
         *Target_Y = Delta_Y;
 
-        if (Magnitude_Squared < pow(Ant_Sense_Range, 2)) {
+        if (Magnitude_Squared < pow((double)Ant_Sense_Range, 2)) {
             return 1;
         }
         return 0;
@@ -271,7 +325,7 @@ int in_interact_range(struct ant_struct *Ant, void *Object, int type) {
         double Delta_X = (*Food).xpos - (*Ant).xpos;
         double Delta_Y = (*Food).ypos - (*Ant).ypos;
         double Magnitude_Squared = pow(Delta_X, 2) + pow(Delta_Y, 2);
-        if (Magnitude_Squared < pow(Ant_Interact_Range, 2)) {
+        if (Magnitude_Squared < pow((double)Ant_Interact_Range, 2)) {
             return 1;
         }
         return 0;
@@ -290,13 +344,9 @@ int in_interact_range(struct ant_struct *Ant, void *Object, int type) {
 }
 
 int pickup_food(struct ant_struct *Ant, struct food_struct *Food) {
-    // TODO: place the ant into the no food state when there is not food left
-    // TODO: move carried food into a different linked list
     Ant->state = Ant_Homing;
     Ant->timer = Trail_Increment;
     Ant->max_intensity = 0.0;
-    Ant->carrying = Food;
-    Food->carrying = Ant;
     return 0;
 }
 
@@ -384,23 +434,6 @@ void move_randomly(struct ant_struct *Ant) {
     move_direction(Ant, Ant->angle + Move_Angle);
 }
 
-void delete_object(void *Object, void **List, int type) {
-    if (type == Type_Food) {
-        struct food_struct *Food = (struct food_struct *)Object;
-
-        // deleting zero breaks the system
-        if (Food->next != NULL) {
-            (Food->next)->last = Food->last;
-        }
-        if (Food->last != NULL) {
-            (Food->last)->next = Food->next;
-        } else {
-            *List = Food->next; // updating the head //causes a seg fault
-        }
-        free(Food);
-    }
-}
-
 int render_ant(struct ant_struct *Ant, sf::RenderWindow *window) {
 
     if (Rendering_View_Cone) {
@@ -440,7 +473,7 @@ int render_ant(struct ant_struct *Ant, sf::RenderWindow *window) {
         window->draw(shape);
         return 1;
     }
-    if(Ant->state == Ant_Homing_Last_Food) {
+    if(Ant->state == Ant_Homing_NoFood) {
         sf::CircleShape shape(3);
         shape.setOrigin(1.5, 1.5);
         shape.setFillColor(sf::Color(250, 0, 0));
@@ -452,22 +485,21 @@ int render_ant(struct ant_struct *Ant, sf::RenderWindow *window) {
 }
 
 int render_food(struct food_struct *Food, sf::RenderWindow *window) {
-    if (Food->carrying == NULL) {
-        sf::CircleShape shape(3);
-        shape.setOrigin(1.5, 1.5);
-        shape.setFillColor(sf::Color(0, 255, 0));
-        shape.setPosition(Food->xpos, Food->ypos);
-        window->draw(shape);
-        return 0;
+    sf::CircleShape shape(3);
+    shape.setOrigin(1.5, 1.5);
+    shape.setFillColor(sf::Color(0, 255, 0));
+    shape.setPosition(Food->xpos, Food->ypos);
+    window->draw(shape);
+    return 0;
     }
 /*
     sf::CircleShape shape(3);
     shape.setOrigin(1.5, 1.5);
     shape.setFillColor(sf::Color(0, 255, 0));
     shape.setPosition((Food->carrying)->xpos, (Food->carrying)->ypos);
-    window->draw(shape);*/
+    window->draw(shape);
     return 0;
-}
+}*/
 
 int render_colony(struct colony_struct *Colony, sf::RenderWindow *window) {
     sf::CircleShape shape(Colony->radius);
@@ -668,6 +700,19 @@ int scan_field(struct ant_struct *Ant, unsigned short *Field, double *Angle) {
     return Detected;
 }
 
+int Wipe_Field(struct ant_struct* Ant, unsigned short* Field_Maturity, double* Field_Intensity) {
+    int Row = -Ant_Sense_Range;
+    for (Row -= Row*( ((int)Ant->ypos + Row) < 0); Row <= Ant_Sense_Range && Row + (int)Ant->ypos < Canvas_Y; Row++) { 
+        int Col = -Ant_Sense_Range;
+        for (Col -= Col* ( ((int)Ant->xpos + Col) < 0); Col <= Ant_Sense_Range && Col + (int)Ant->xpos < Canvas_X; Col++) {
+            int Index = Canvas_X*(Row + (int)Ant->ypos) + (int)Ant->xpos + Col;
+            *(Field_Maturity + Index) = 0;
+            *(Field_Intensity + Index) = 0;
+        }
+    }
+}
+
+
 void drop_trails(struct ant_struct *Ant, double *Field) {
 
     // Standard drop near ant
@@ -690,16 +735,15 @@ void drop_trails(struct ant_struct *Ant, double *Field) {
      */
 }
 
+
 int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
         double *Foraging_Field_Intensity,
         unsigned short *Foraging_Field_Maturity, double *Homing_Field_Intensity,
         unsigned short *Homing_Field_Maturity,
-        struct colony_struct *Colonys_List, double* NoFood_Field_Intensity, unsigned short* NoFood_Field_Maturity) {
-    // TODO: refactor to avoid recyled code
+        struct colony_struct *Colonys_List) {
     Ant->max_intensity += Trail_Aging; 
-    // the algoarimt for this needs to prevent ants getting stuck
-    // but also stop them losing interest in new trials
     Ant->timer *= Trail_Decay;
+    double Ant_Radius_from_center = sqrt(pow(Ant->xpos - Canvas_X/2, 2) + pow(Ant->ypos - Canvas_Y/2, 2));
     if ((*Ant).state == Ant_Foraging) {
 
         drop_trails(Ant, Homing_Field_Intensity);
@@ -715,32 +759,45 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
         double Move_X = 0;
         double Move_Y = 0;
         int Looping = 1;
+        while(Food_Item->next != NULL) {
+            if(Food_Item->next->radius_from_center < Ant_Radius_from_center - Ant_View_Range) {
+                Food_Item = Food_Item->next; 
+            }
+            else{
+                break;
+            }
+        }
+        struct food_struct* Start_Food = Food_Item;
         while (Looping) {
 
             // check if we can pick up the food
-            if (in_interact_range(Ant, Food_Item, Type_Food) &&
-                    Food_Item->carrying == NULL) {
+            if (in_interact_range(Ant, Food_Item, Type_Food)) {
                 pickup_food(Ant, Food_Item);
-
+                //deleting this could fuck the pointers
+                if (Start_Food == Food_Item) {
+                    Start_Food = delete_food(Food_Item, Foods_List);
+                }
+                else {
+                    delete_food(Food_Item, Foods_List);
+                }
                 //If we can pickup the food check if there's other food nearby
-                    Food_Item = *Foods_List;
-                    while(Looping) {
+                Food_Item = Start_Food;
+                while(Looping) {
 
                     double Default  = 0;
 
-                    if(in_sense_range(Ant, Food_Item, &Default, &Default, &Default, Type_Food) && Food_Item->carrying == NULL) {
+                    if(in_sense_range(Ant, Food_Item, &Default, &Default, &Default, Type_Food)) {
                         Looping = 0;
                     }
-                    
-                    if (Food_Item->next != NULL) {
+
+                    if (Food_Item->next != NULL && Food_Item->radius_from_center < Ant_Radius_from_center + Ant_Sense_Range) {
                         Food_Item = Food_Item->next;
                     }
                     else {
                         Looping = 0;
-                        Ant->state = Ant_Homing_Last_Food;
+                        Ant->state = Ant_Homing_NoFood;
                     }
                 }
-                
                 double Angle = 0;
                 if (scan_field_SIMD(Ant, Homing_Field_Maturity, &Angle)) {
                     Ant->angle = Angle;
@@ -752,19 +809,15 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
             double Food_Rel_X = 0;
             double Food_Rel_Y = 0;
             double Distance = 0;
-            if ((in_view_cone(Ant, Food_Item, &Food_Rel_X, &Food_Rel_Y, &Distance,
-                            Type_Food) ||
-                        in_sense_range(Ant, Food_Item, &Food_Rel_X, &Food_Rel_Y, &Distance,
-                            Type_Food)) &&
-                    Food_Item->carrying == NULL) {
+            if ((in_view_cone(Ant, Food_Item, &Food_Rel_X, &Food_Rel_Y, &Distance, Type_Food) || in_sense_range(Ant, Food_Item, &Food_Rel_X, &Food_Rel_Y, &Distance, Type_Food))) {
                 if (Distance < Least_Mag_Squared || Least_Mag_Squared < 0) {
                     Least_Mag_Squared = Distance;
                     Move_X = Food_Rel_X;
                     Move_Y = Food_Rel_Y;
                 }
             }
-            if (Food_Item->next != NULL) {
-                Food_Item = (Food_Item->next); // Follow the trail
+            if (Food_Item->next != NULL && Food_Item->radius_from_center < Ant_Radius_from_center + Ant_View_Range) {
+                Food_Item = (Food_Item->next);
             } else {
                 Looping = 0; // Terminate the loop
             }
@@ -775,14 +828,11 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
         }
 
         double Angle = 0;
-           if (!scan_field_SIMD(Ant, NoFood_Field_Maturity, &Angle)) {
-             
-               if (view_field(Ant, Foraging_Field_Maturity, &Angle)) {
-                   Ant->angle = Angle;
-               } else if (scan_field_SIMD(Ant, Foraging_Field_Maturity, &Angle)) {
-                   Ant->angle = Angle;
-               }
-           }
+        if (view_field(Ant, Foraging_Field_Maturity, &Angle)) {
+            Ant->angle = Angle;
+        } else if (scan_field_SIMD(Ant, Foraging_Field_Maturity, &Angle)) {
+            Ant->angle = Angle;
+        }
         // Checking the colonies to reset timer
         Looping = 1;
         struct colony_struct *Colony = Colonys_List;
@@ -805,10 +855,10 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
         return 1;
     }
 
-    if ((*Ant).state == Ant_Homing || Ant->state == Ant_Homing_Last_Food) {
-        
-        if (Ant->state == Ant_Homing_Last_Food) {
-            drop_trails(Ant, NoFood_Field_Intensity);
+    if ((*Ant).state == Ant_Homing || Ant->state == Ant_Homing_NoFood) {
+        //TODO: Ant Homing needs to be memory based 
+        if (Ant->state == Ant_Homing_NoFood) {
+            Wipe_Field(Ant, Foraging_Field_Maturity, Foraging_Field_Intensity);
         }
         else {
             drop_trails(Ant, Foraging_Field_Intensity);
@@ -828,8 +878,6 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
 
             if (in_interact_range(Ant, Colony, Type_Colony)) {
 
-                delete_object(Ant->carrying, (void **)Foods_List, Type_Food);
-                Ant->carrying = NULL;
                 Ant->state = Ant_Foraging;
                 Ant->timer = Trail_Increment;
                 Ant->max_intensity = 0.0;
@@ -867,14 +915,21 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
             Looping = 1;
             struct food_struct *Food_Item = *Foods_List;
             double Placeholder = 0;
+            while(Food_Item->next != NULL) {
+                if(Food_Item->next->radius_from_center < Ant_Radius_from_center - Ant_View_Range) {
+                    Food_Item = Food_Item->next;
+                }
+                else {
+                    break;
+                }
+            }
             while (Looping) {
 
-                if (in_view_cone(Ant, Food_Item, &Placeholder, &Placeholder,
-                            &Placeholder, Type_Food)) {
+                if (in_view_cone(Ant, Food_Item, &Placeholder, &Placeholder, &Placeholder, Type_Food)) {
                     Ant->timer = Trail_Increment;
                 }
 
-                if (Food_Item->next != NULL) {
+                if (Food_Item->next != NULL && Food_Item->radius_from_center < Ant_Radius_from_center + Ant_View_Range) {
                     Food_Item = (Food_Item->next); // Follow the trail
                 } else {
                     Looping = 0; // Terminate the loop
@@ -899,22 +954,24 @@ struct setup_struct *setup() {
     }
 
     Setup_Data->colonys_list = NULL;
-    struct colony_struct *Colony =
-        init_colony(&(Setup_Data->colonys_list), Canvas_X / 2, Canvas_Y / 2,
-                Canvas_X * Canvas_Y / 60000);
-
+    init_colony(&(Setup_Data->colonys_list), Canvas_X / 2, Canvas_Y / 2, Canvas_X * Canvas_Y / 60000);
     Setup_Data->foods_list = NULL;
     for (int i = 0; i < Number_Clusters; i++) {
-        double Cluster_X =
-            randfrom(3 * Ant_View_Range, Canvas_X - 3 * Ant_View_Range);
-        double Cluster_Y =
-            randfrom(3 * Ant_View_Range, Canvas_Y - 3 * Ant_View_Range);
+        double Cluster_X = randfrom(3 * Ant_View_Range, Canvas_X - 3 * Ant_View_Range);
+        double Cluster_Y = randfrom(3 * Ant_View_Range, Canvas_Y - 3 * Ant_View_Range);
         for (int i = 0; i < Number_Foods; i++) {
-            struct food_struct *Food =
-                init_food(&(Setup_Data->foods_list), Cluster_X + randfrom(-5, 5),
-                        Cluster_Y + randfrom(-5, 5));
+            init_food(&(Setup_Data->foods_list), Cluster_X + randfrom(-5, 5), Cluster_Y + randfrom(-5, 5));
         }
     }
+
+    //Debugging food
+    struct food_struct* Food = Setup_Data->foods_list;
+    for(int i = 0; i<Number_Clusters*Number_Foods; i++) {
+        Food = Food->next;
+    }
+
+
+
     return Setup_Data;
 }
 
@@ -922,9 +979,9 @@ void loop(sf::RenderWindow *window, struct ant_struct **Ants_List,
         double *Foraging_Field_Intensity, unsigned short *Foraging_Field_Maturity,
         double *Homing_Field_Intensity, unsigned short *Homing_Field_Maturity,
         struct food_struct **Foods_List, struct colony_struct **Colonys_List,
-        int Rendering, double* NoFood_Field_Intensity, unsigned short* NoFood_Field_Maturity) {
+        int Rendering) {
 
-    // Set of Walls in the Level (Investigate what datatype to use)
+    //TODO: Set of Walls in the Level (Investigate what datatype to use)
 
     // ants
     struct ant_struct *Ant = *Ants_List;
@@ -932,7 +989,7 @@ void loop(sf::RenderWindow *window, struct ant_struct **Ants_List,
     while (Looping) {
         ant_update(Ant, Foods_List, Foraging_Field_Intensity,
                 Foraging_Field_Maturity, Homing_Field_Intensity,
-                Homing_Field_Maturity, *Colonys_List, NoFood_Field_Intensity, NoFood_Field_Maturity);
+                Homing_Field_Maturity, *Colonys_List);
         if (Rendering) {
             render_ant(Ant, window);
         }
@@ -972,7 +1029,6 @@ void loop(sf::RenderWindow *window, struct ant_struct **Ants_List,
     renderAndupdate_field(Homing_Field_Intensity, Homing_Field_Maturity,
             Type_Homing, window, Rendering);
 
-    renderAndupdate_field(NoFood_Field_Intensity, NoFood_Field_Maturity, Type_NoFood, window, Rendering);
 }
 
 int main() {
@@ -998,9 +1054,6 @@ int main() {
     unsigned short *Foraging_Field_Maturity = (unsigned short *)malloc(Canvas_X * Canvas_Y * sizeof(unsigned short));
     unsigned short *Homing_Field_Maturity = (unsigned short *)malloc(Canvas_X * Canvas_Y * sizeof(unsigned short));
 
-    double *NoFood_Field_Intensity = (double*)malloc(Canvas_X* Canvas_Y* sizeof(double));
-    unsigned short *NoFood_Field_Matuirty = (unsigned short*)malloc(Canvas_X * Canvas_Y * sizeof(unsigned short));
-
     int i = 0;
 
     while (window.isOpen()) {
@@ -1025,7 +1078,7 @@ int main() {
 
         loop(&window, &Ants_List, Foraging_Field_Intensity, Foraging_Field_Maturity,
                 Homing_Field_Intensity, Homing_Field_Maturity, &Foods_List,
-                &Colonys_List, Rendering, NoFood_Field_Intensity, NoFood_Field_Matuirty);
+                &Colonys_List, Rendering);
 
         if (Rendering) {
             window.display();
