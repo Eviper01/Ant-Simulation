@@ -18,8 +18,8 @@
 #define Number_Clusters 8
 #define Number_Foods 25
 #define Diffusion 0
-#define Number_Walls 5
-#define Wall_Verticies 15
+#define Number_Walls 1
+#define Wall_Verticies 4
 // Rendering
 #define Rendering_View_Cone 0
 #define Rendering_Foraging_Trail 1
@@ -500,6 +500,14 @@ void enforce_boundary(struct ant_struct *Ant) {
     }
 }
 
+void enforce_walls(struct ant_struct *Ant, struct wall_struct **Walls_List) {
+    //TODO: Write the code which enforces the boundary on the walls
+
+}
+
+
+
+
 void move_xy(struct ant_struct *Ant, double xRel, double yRel) {
 
     double Length_Squared = pow(xRel, 2) + pow(yRel, 2);
@@ -602,7 +610,7 @@ int render_colony(struct colony_struct *Colony, sf::RenderWindow *window) {
 int render_wall(struct wall_struct* Wall, sf::RenderWindow *window) {
     sf::ConvexShape polygon;
     polygon.setPointCount(Wall->size);
-    for(int i; i<Wall->size; i++){
+    for(int i=0; i<Wall->size; i++){
         polygon.setPoint(i, sf::Vector2f(Wall->x_points[i], Wall->y_points[i]));
     }
     polygon.setFillColor(sf::Color(220,220,220));
@@ -843,7 +851,8 @@ int ant_update(struct ant_struct *Ant, struct food_struct **Foods_List,
         double *Foraging_Field_Intensity,
         unsigned short *Foraging_Field_Maturity, double *Homing_Field_Intensity,
         unsigned short *Homing_Field_Maturity,
-        struct colony_struct *Colonys_List) {
+        struct colony_struct *Colonys_List,
+        struct walls_struct *Walls_List) {
     Ant->max_intensity += Trail_Aging; 
     Ant->timer *= Trail_Decay;
     double Ant_Radius_from_center = sqrt(pow(Ant->xpos - Canvas_X/2, 2) + pow(Ant->ypos - Canvas_Y/2, 2));
@@ -1108,7 +1117,7 @@ void loop(sf::RenderWindow *window, struct ant_struct **Ants_List,
     while (Looping) {
         ant_update(Ant, Foods_List, Foraging_Field_Intensity,
                 Foraging_Field_Maturity, Homing_Field_Intensity,
-                Homing_Field_Maturity, *Colonys_List);
+                Homing_Field_Maturity, *Colonys_List, *Walls_List);
         if (Rendering) {
             render_ant(Ant, window);
         }
